@@ -1,0 +1,16 @@
+services:
+  f1live:
+    build: .
+    image: f1live:local
+    container_name: f1live
+    restart: unless-stopped
+    ports:
+      - "3080:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      - TZ=Europe/Oslo
+      # Set to 1 to try the page with a simulated race:
+      - DEMO=0
+      # Optional: F1 TV token here instead of pasting it on the page.
+      # - F1TV_TOKEN=

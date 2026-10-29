@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0d10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>F1 Live</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23e10600'/%3E%3Cpath d='M7 22 17 10h8L15 22zM17 22l6-7h4l-6 7z' fill='white'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="flagbar" class="flagbar" data-status="none"></div>
+  <header class="top">
+    <div class="brand"><span class="mark"></span><span>F1</span><span class="brand-sub">LIVE</span></div>
+    <div class="session">
+      <div class="session-title" id="sessionTitle">—</div>
+      <div class="session-meta">
+        <span id="trackPill" class="pill" data-status="none">No session</span>
+        <span id="lapInfo" class="meta-item"></span>
+        <span id="clockInfo" class="meta-item"></span>
+      </div>
+    </div>
+    <div class="top-right">
+      <span id="liveChip" class="chip">Offline</span>
+      <button id="settingsBtn" class="icon-btn" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main class="grid">
+    <section class="card weekend" id="weekendCard">
+      <div class="card-head"><h2>Next race weekend</h2><span id="tzLabel" class="muted small"></span></div>
+      <div id="weekend" class="weekend-body"><div class="empty">Loading calendar…</div></div>
+    </section>
+
+    <section class="card tower-card" id="towerCard">
+      <div class="card-head">
+        <h2 id="towerTitle">Timing</h2>
+        <button id="gapToggle" class="seg" title="Switch between gap to leader and interval">Interval</button>
+      </div>
+      <div class="tower-wrap">
+        <table class="tower" id="tower">
+          <thead>
+            <tr>
+              <th class="c-pos">P</th>
+              <th class="c-drv">Driver</th>
+              <th class="c-gap">Gap</th>
+              <th class="c-int">Int</th>
+              <th class="c-last">Last</th>
+              <th class="c-best">Best</th>
+              <th class="c-sec">S1</th>
+              <th class="c-sec">S2</th>
+              <th class="c-sec">S3</th>
+              <th class="c-tyre">Tyre</th>
+              <th class="c-pit">Pit</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+        <div id="towerEmpty" class="empty">Live timing starts about 45 minutes before each session.</div>
+      </div>
+    </section>
+
+    <section class="card map-card" id="mapCard">
+      <div class="card-head"><h2 id="mapTitle">Track</h2><span id="weather" class="muted small"></span></div>
+      <div class="map-wrap">
+        <svg id="map" class="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-label="Track map with car positions"></svg>
+        <div id="mapNote" class="map-note"></div>
+      </div>
+    </section>
+
+    <section class="card rc-card" id="rcCard">
+      <div class="card-head"><h2>Race control</h2></div>
+      <ol id="rc" class="rc"></ol>
+    </section>
+  </main>
+
+  <dialog id="settings" class="settings">
+    <form method="dialog" class="settings-inner">
+      <div class="card-head"><h2>Settings</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+
+      <label class="field">
+        <span class="field-label">Broadcast delay <b id="delayVal">0 s</b></span>
+        <input type="range" id="delay" min="0" max="120" step="1" value="0">
+        <span class="hint">Holds the data back so it matches what you see on F1 TV. Watch for a sector or flag change on screen and nudge this until the page agrees. F1 TV is often 20–45 s behind.</span>
+      </label>
+
+      <div class="field">
+        <span class="field-label">F1 TV sign-in <b id="tokenState"></b></span>
+        <span class="hint">Car positions on the track map need your F1 TV subscription token. Sign in at formula1.com on a computer, open the browser's developer tools → Application/Storage → Cookies → formula1.com, and copy the value of the <code>login-session</code> cookie. Paste it here; the token is pulled out of it and stored only on your homelab box.</span>
+        <textarea id="tokenInput" rows="3" placeholder="Paste the login-session cookie value (or the subscriptionToken)"></textarea>
+        <div class="row">
+          <button type="button" id="tokenSave" class="btn primary">Save token</button>
+          <button type="button" id="tokenClear" class="btn">Remove</button>
+          <span id="tokenMsg" class="hint"></span>
+        </div>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Connection</span>
+        <span id="connInfo" class="hint mono"></span>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>
