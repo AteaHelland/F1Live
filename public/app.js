@@ -429,7 +429,13 @@ function renderSettings() {
   if (status?.live?.tokenRejected) { el.textContent = 'Rejected — paste a fresh one'; el.className = 'bad'; }
   else if (!t?.present) { el.textContent = 'Not set'; el.className = 'warn'; }
   else if (t.expires && new Date(t.expires) < new Date()) { el.textContent = `Expired ${fmtDay.format(new Date(t.expires))}`; el.className = 'bad'; }
-  else { el.textContent = t.expires ? `Saved · valid until ${fmtDay.format(new Date(t.expires))}` : 'Saved'; el.className = 'ok'; }
+  else {
+    const parts = [t.source === 'auto' ? 'Gathered automatically from formula1.com' : 'Pasted manually'];
+    if (t.source === 'auto' && t.savedAt) parts.push(`renewed ${fmtDay.format(new Date(t.savedAt))}`);
+    if (t.expires) parts.push(`valid until ${fmtDay.format(new Date(t.expires))}`);
+    el.textContent = parts.join(' · ');
+    el.className = 'ok';
+  }
   const l = status?.live || {};
   const ago = l.lastMessageAt ? `${Math.round((Date.now() + offset - l.lastMessageAt) / 1000)}s ago` : 'never';
   $('connInfo').textContent = [

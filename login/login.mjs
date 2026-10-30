@@ -223,7 +223,7 @@ async function sendToDashboard(token) {
   const res = await fetch(`${DASHBOARD_URL}/api/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token }),
+    body: JSON.stringify({ token, source: 'auto' }),
   });
   if (!res.ok) {
     const j = await res.json().catch(() => ({}));

@@ -26,8 +26,16 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 const TOKEN_FILE = path.join(DATA, 'f1tv-token.txt');
 let token = (process.env.F1TV_TOKEN || '').trim() || null;
 try { token = (await fs.readFile(TOKEN_FILE, 'utf8')).trim() || token; } catch {}
+const META_FILE = path.join(DATA, 'f1tv-token-meta.json');
+let tokenMeta = {};
+try { tokenMeta = JSON.parse(await fs.readFile(META_FILE, 'utf8')); } catch {}
 
 function tokenInfo() {
+  const i = tokenInfoRaw();
+  return i.present ? { ...i, source: tokenMeta.source || null, savedAt: tokenMeta.savedAt || null } : i;
+}
+
+function tokenInfoRaw() {
   if (!token) return { present: false };
   try {
     const p = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString());
@@ -154,19 +162,23 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/token' && req.method === 'POST') {
       const body = await readBody(req);
-      let input = body;
-      try { input = JSON.parse(body).token ?? body; } catch {}
+      let input = body, source = 'manual';
+      try { const j = JSON.parse(body); input = j.token ?? body; if (j.source === 'auto') source = 'auto'; } catch {}
       const t = extractToken(input);
       if (!t) return json(res, 400, { error: "Couldn't find a token in that. Paste the login-session cookie value or the subscriptionToken." });
       token = t;
       await fs.writeFile(TOKEN_FILE, t, { mode: 0o600 });
+      tokenMeta = { source, savedAt: new Date().toISOString() };
+      await fs.writeFile(META_FILE, JSON.stringify(tokenMeta));
       live.restart();
-      log('F1 TV token updated');
+      log(`F1 TV token updated (${source === 'auto' ? 'automatic sign-in' : 'pasted'})`);
       return json(res, 200, statusView());
     }
     if (url.pathname === '/api/token' && req.method === 'DELETE') {
       token = null;
       await fs.rm(TOKEN_FILE, { force: true });
+      tokenMeta = {};
+      await fs.rm(META_FILE, { force: true });
       live.restart();
       return json(res, 200, statusView());
     }
