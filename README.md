@@ -1,82 +1,117 @@
-# f1.home.arpa — F1 race weekend + live timing
+# F1 Live
 
-A small container that shows:
+A self-hosted Formula 1 dashboard for your home network. It shows the next race weekend in
+your own time zone and, while a session is running, live timing with a track map: like a
+second screen next to the broadcast.
 
-- the next race weekend, every session in your local time, with a countdown
-- during sessions: track status (flag bar + pill), positions, gap/interval, last/best lap,
-  sector times (purple / green / yellow), tyre compound + tyre age, pit stops, race control
-- a track map with live car positions (needs your F1 TV token — see step 5)
-- a broadcast-delay slider so the data matches what you see on F1 TV
+> Unofficial and not affiliated with Formula 1. It reads F1's public live-timing feed, which
+> can change without notice. Car positions need your own F1 TV subscription.
 
-It connects to F1's live-timing feed only from 45 min before a session until ~90 min after,
-and keeps the last session's data so you can look at results afterwards.
+## What it shows
 
-## 1. Copy it to the homelab box
+**Between race weekends**
+- The next race weekend with every session in your local time, plus a countdown
 
-From the Mac:
+**During a session**
+- Track status (green, yellow, safety car, VSC, red), shown as a colour bar across the top
+- Lap count and a timing tower: positions, gap or interval (tap to switch), last lap
+- Sector times, coloured for personal and overall bests
+- Tyre compound, tyre age and pit stops
+- Race control messages
+- A track map with live car positions in team colours, with yellow-flagged sectors highlighted
+- A broadcast-delay slider so the page matches your stream (TV and streaming usually run
+  20–45 seconds behind the live data)
 
-    scp f1live.tar.gz <you>@192.168.1.250:~
+The dashboard only connects to F1's feed from 45 minutes before a session until about 90
+minutes after it. It keeps the last session's data, so you can look at results afterwards.
 
-On the box:
+## Requirements
 
-    sudo mkdir -p /opt/f1live && sudo tar -xzf ~/f1live.tar.gz -C /opt/f1live --strip-components=1
-    sudo mkdir -p /opt/f1live/data && sudo chown 1000:1000 /opt/f1live/data
-    cd /opt/f1live && sudo docker compose up -d --build
+- A machine running Docker with the Compose plugin
+- Optional: an F1 TV subscription, for car positions on the track map (F1 only sends those to
+  subscribers; everything else works without it)
+- Optional: a local DNS name and a reverse proxy for HTTPS
 
-Check it: `curl -s localhost:3080/healthz` → `{"ok":true,...}`
+## Install
 
-Want to see it moving before a race weekend? Set `DEMO=1` in docker-compose.yml,
-`sudo docker compose up -d`, look, then set it back to `0`.
+    git clone <this-repo-url> f1live
+    cd f1live
+    mkdir -p data && sudo chown 1000:1000 data
+    sudo docker compose up -d --build
 
-## 2. Pi-hole: add the name
+Open `http://<server-ip>:3080`. To check that it's running:
 
-Pi-hole admin → **Local DNS → DNS Records** (v6: Settings → Local DNS Records):
-domain `f1.home.arpa`, IP `192.168.1.250`. (If your other names are CNAMEs to the box, do the same here.)
+    curl -s localhost:3080/healthz      # → {"ok":true,...}
 
-## 3. Caddy: HTTPS for the name
+### Try it without a race
 
-Add to the Caddyfile next to your other `.home.arpa` sites:
+Set `DEMO=1` in `docker-compose.yml` and run `sudo docker compose up -d`. The page then plays
+a simulated race with pit stops and yellow flags. Set it back to `0` afterwards, and delete
+`data/last-session.json` so the fake race doesn't linger as the last session.
 
-    f1.home.arpa {
+### A nicer address and HTTPS (optional)
+
+Point a local DNS name at the server (in Pi-hole, your router or a hosts file), then put a
+reverse proxy in front. With Caddy:
+
+    f1.example.home.arpa {
         tls internal
-        reverse_proxy 192.168.1.250:3080
+        reverse_proxy <server-ip>:3080
     }
 
-Then `sudo systemctl reload caddy` (or `docker exec caddy caddy reload --config /etc/caddy/Caddyfile`
-if Caddy runs in a container). The certificate is trusted the same way as your other local names.
+Any reverse proxy works. Make sure it doesn't buffer `/api/stream`, which is a live
+server-sent events stream.
 
-## 4. Homepage tile (optional)
+## F1 TV token (car positions)
 
-In `services.yaml`:
+There are two ways to give the dashboard your token:
 
-    - F1:
-        href: https://f1.home.arpa
-        description: Next race + live timing
-        icon: si-f1
-        siteMonitor: http://192.168.1.250:3080/healthz
+1. **Automatically (recommended):** the `login/` folder holds a small companion container
+   that signs in to formula1.com with your account, fetches the token and renews it before it
+   expires. See [login/README.md](login/README.md).
+2. **By hand:** sign in at formula1.com in a desktop browser, open developer tools →
+   Application/Storage → Cookies → formula1.com, and copy the value of the `login-session`
+   cookie. Paste it in the dashboard under ⚙ settings and click Save. Tokens last a few days,
+   so you'll need to repeat this before each race weekend.
 
-Uptime Kuma: an HTTP monitor on `http://192.168.1.250:3080/healthz` works too.
+Settings shows where the current token came from and when it expires. The token is stored
+only in `data/` on your server. If F1 rejects it, the dashboard keeps running without car
+positions.
 
-## 5. F1 TV token (for car positions on the map)
+## Configuration
 
-Since 2025 F1 only sends car positions to F1 TV subscribers. Everything else works without it.
+Set these under `environment:` in `docker-compose.yml`, then run `sudo docker compose up -d`
+(a plain `docker restart` doesn't pick up changes).
 
-1. On the Mac, sign in at formula1.com (your F1 TV account).
-2. Open developer tools → Storage/Application → Cookies → `https://www.formula1.com`.
-3. Copy the value of the `login-session` cookie.
-4. On f1.home.arpa, open ⚙ settings, paste it, Save.
-
-The page pulls the `subscriptionToken` out of it and stores it only in `/opt/f1live/data`.
-Settings shows when it expires; paste a fresh one when it does (the page falls back to
-running without positions if F1 rejects it).
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `DEMO` | `0` | `1` plays a simulated race instead of connecting to F1 |
+| `LIVE_ALWAYS` | `0` | `1` stays connected to F1 all the time, not just around sessions |
+| `BUFFER_SECONDS` | `150` | How much recent data the server keeps, which caps the broadcast delay |
+| `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
+| `DATA_DIR` | `./data` | Where the calendar, track outlines, last session and token are kept |
 
 ## Updating
 
-Your monthly script's `docker compose pull` won't touch this (it's built locally).
-To pick up the Node base image updates: `cd /opt/f1live && sudo docker compose build --pull && sudo docker compose up -d`.
+    git pull
+    sudo docker compose build --pull
+    sudo docker compose up -d
 
-## Notes
+The image is built locally, so `docker compose pull` alone won't update it. After an update,
+reload the page in your browser.
 
-- Calendar: api.jolpi.ca (Ergast-compatible). Track outlines: MultiViewer's public circuit API.
-  Live data: livetiming.formula1.com (unofficial, can change without notice).
-- Data lives in `./data`: cached calendar and track outlines, the last session, the token.
+## Monitoring (optional)
+
+- Health check: `http://<server-ip>:3080/healthz`, for Uptime Kuma, Homepage or similar
+- The auto sign-in container has its own status check, described in `login/README.md`
+
+## Data sources
+
+- Live timing: livetiming.formula1.com (unofficial)
+- Race calendar: api.jolpi.ca (Ergast-compatible)
+- Track outlines: MultiViewer's public circuit API
+
+## Keep secrets out of git
+
+`data/` (your token) and `login/.env` (your F1 password) are listed in `.gitignore`. Check
+`git status` before committing, and don't put a real token in `docker-compose.yml`.
