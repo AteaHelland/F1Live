@@ -1,0 +1,17 @@
+services:
+  f1tv-login:
+    build: .
+    container_name: f1tv-login
+    restart: unless-stopped
+    init: true            # cleans up Chromium's helper processes
+    shm_size: 256mb       # Chromium needs more shared memory than Docker's default
+    env_file: .env        # F1_EMAIL and F1_PASSWORD
+    environment:
+      - TZ=Europe/Oslo
+      - DASHBOARD_URL=http://192.168.1.250:3080
+      - CHECK_HOURS=6     # how often to look at the token
+      - RENEW_HOURS=36    # sign in again when less than this is left
+    volumes:
+      - ./data:/data      # saved browser session, state, last-error.png
+    ports:
+      - "3081:3081"       # GET /status for Uptime Kuma, POST /run to renew now

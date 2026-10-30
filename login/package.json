@@ -1,0 +1,10 @@
+{
+  "name": "f1tv-login",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Keeps the f1.home.arpa dashboard's F1 TV token fresh by signing in with a headless browser",
+  "dependencies": {
+    "playwright": "1.63.0"
+  }
+}
