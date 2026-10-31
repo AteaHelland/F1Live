@@ -345,7 +345,7 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
 .lg-btn { background: none; border: 1px solid transparent; border-radius: 6px; padding: 1px 6px; cursor: pointer; color: var(--text); font-weight: 700; font-size: 13px; }
 .lg-btn.on { border-color: #5a6472; background: var(--panel-2); }
 .lg-sw { width: 12px; height: 12px; border-radius: 4px; border: 2px solid var(--panel); }
-.used-sw { background-image: repeating-linear-gradient(45deg, #8a94a3 0, #8a94a3 2px, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 5px); }
+.used-sw { background-color: var(--medium); opacity: .5; }
 .lg-line { width: 18px; border-top: 2px solid; }
 .lg-line.dashed { border-top-style: dashed; }
 .chart-note { margin: 8px 0 0; }
@@ -365,8 +365,8 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
 .st-tick { position: absolute; top: 0; transform: translateX(-50%); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .st-stint { position: absolute; top: 2px; bottom: 2px; border-radius: 4px; display: flex; align-items: center; overflow: hidden; min-width: 3px; cursor: default; }
 .st-stint span { position: relative; z-index: 1; font-size: 11px; font-weight: 700; color: #111; padding-left: 6px; white-space: nowrap; }
-/* used sets: stripes on their own layer over the compound colour */
-.st-stint.used::after { content: ''; position: absolute; inset: 0; background-image: repeating-linear-gradient(45deg, rgba(0, 0, 0, .28) 0, rgba(0, 0, 0, .28) 2px, rgba(0, 0, 0, 0) 2px, rgba(0, 0, 0, 0) 6px); }
+/* used sets: the compound colour, faded (no patterns, which some browsers and extensions paint black) */
+.st-stint.used { opacity: .5; }
 .st-stint.live { box-shadow: inset -3px 0 0 rgba(0, 0, 0, .35); }
 .st-stint.c-WET span, .st-stint.c-INTERMEDIATE span { color: #fff; }
 .st-now { position: absolute; top: -2px; bottom: -2px; width: 1px; background: var(--muted); opacity: .5; }

@@ -37,7 +37,7 @@ export function strategyChart(rows, { totalLaps, currentLap }) {
     </div>`;
   }).join('');
   const legend = `<div class="legend">${['SOFT', 'MEDIUM', 'HARD', 'INTERMEDIATE', 'WET'].map((c) =>
-    `<span class="lg"><span class="lg-sw c-${c}"></span>${c[0]}${c.slice(1).toLowerCase()}</span>`).join('')}<span class="lg"><span class="lg-sw used-sw"></span>Used set</span></div>`;
+    `<span class="lg"><span class="lg-sw c-${c}"></span>${c[0]}${c.slice(1).toLowerCase()}</span>`).join('')}<span class="lg"><span class="lg-sw used-sw"></span>Faded: used set</span></div>`;
   return `${legend}<div class="strategy">${axis}${body}</div>`;
 }
 
