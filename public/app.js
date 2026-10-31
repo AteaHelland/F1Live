@@ -30,6 +30,7 @@ let insTab = store.get('insTab', '');
 let radioMine = store.get('radioMine', false);
 let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
 let mapHidden = new Set(store.get('mapHidden', [])); // driver codes hidden on the track map
+let units = { temp: 'C', speed: 'kmh', ...store.get('units', {}) };
 let traceFilter = store.get('traceFilter', 10);
 let traceFocus = null;       // driver number highlighted from the legend
 let standings = null, standingsErr = null, standingsAt = 0;
@@ -732,6 +733,16 @@ function renderMap() {
   renderGhost(entries);
 }
 
+// ---------- units ----------
+// The feed is metric (°C, km/h, wind in m/s); these convert for display only.
+const imperialSpeed = () => units.speed === 'mph';
+const tempVal = (c) => (units.temp === 'F' ? Number(c) * 1.8 + 32 : Number(c));
+const tempDelta = (d) => (units.temp === 'F' ? d * 1.8 : d);
+const tempStr = (c) => `${tempVal(c).toFixed(1)}°${units.temp === 'F' ? 'F' : ''}`;
+const speedVal = (kmh) => (imperialSpeed() ? Math.round(Number(kmh) * 0.621371) : Math.round(Number(kmh)));
+const speedUnit = () => (imperialSpeed() ? 'mph' : 'km/h');
+const windStr = (ms) => (imperialSpeed() ? [(Number(ms) * 2.23694).toFixed(1), 'mph'] : [Number(ms).toFixed(1), 'm/s']);
+
 // ---------- weather ----------
 const COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
 function renderWx() {
@@ -744,15 +755,16 @@ function renderWx() {
   const cut = shownNow() - 20 * 60000;
   const old = wx.find((e) => e.t >= cut);
   const dT = old && wx.length > 1 ? Number(w.TrackTemp) - old.track : 0;
-  const trend = Math.abs(dT) >= 0.5 ? `<span class="wx-trend">${dT > 0 ? '▲' : '▼'} ${Math.abs(dT).toFixed(1)}°</span>` : '';
+  const trend = Math.abs(dT) >= 0.5 ? `<span class="wx-trend">${dT > 0 ? '▲' : '▼'} ${Math.abs(tempDelta(dT)).toFixed(1)}°</span>` : '';
+  const [windV, windU] = windStr(w.WindSpeed);
   const dir = Number(w.WindDirection);
   const hasDir = Number.isFinite(dir) && w.WindDirection != null;
   const rain = w.Rainfall === '1' || w.Rainfall === 1;
   el.innerHTML = `
-    <div class="wx-item"><span class="wx-k">Air</span><span class="wx-v">${Number(w.AirTemp).toFixed(1)}°</span></div>
-    <div class="wx-item"><span class="wx-k">Track</span><span class="wx-v">${Number(w.TrackTemp).toFixed(1)}°${trend}</span>${sparkline(track)}</div>
+    <div class="wx-item"><span class="wx-k">Air</span><span class="wx-v">${tempStr(w.AirTemp)}</span></div>
+    <div class="wx-item"><span class="wx-k">Track</span><span class="wx-v">${tempStr(w.TrackTemp)}${trend}</span>${sparkline(track)}</div>
     <div class="wx-item"><span class="wx-k">Humidity</span><span class="wx-v">${Math.round(w.Humidity)}<span class="wx-u">%</span></span></div>
-    <div class="wx-item"><span class="wx-k">Wind</span><span class="wx-v">${hasDir ? `<span class="wx-arrow" style="transform:rotate(${dir + 180}deg)" title="From ${COMPASS[Math.round(dir / 45) % 8]}">↑</span>` : ''}${Number(w.WindSpeed).toFixed(1)}<span class="wx-u">m/s${hasDir ? ` ${COMPASS[Math.round(dir / 45) % 8]}` : ''}</span></span></div>
+    <div class="wx-item"><span class="wx-k">Wind</span><span class="wx-v">${hasDir ? `<span class="wx-arrow" style="transform:rotate(${dir + 180}deg)" title="From ${COMPASS[Math.round(dir / 45) % 8]}">↑</span>` : ''}${windV}<span class="wx-u">${windU}${hasDir ? ` ${COMPASS[Math.round(dir / 45) % 8]}` : ''}</span></span></div>
     <div class="wx-item"><span class="wx-k">Rain</span><span class="wx-v ${rain ? 'wx-rain' : ''}">${rain ? '🌧 Wet' : 'Dry'}</span></div>`;
   el.hidden = false;
 }
@@ -790,7 +802,7 @@ function renderTele() {
   const rpmPct = Math.max(0, Math.min(100, ((s.rpm - 4000) / 9000) * 100));
   el.innerHTML = `
     <div class="tele-top">
-      <div class="tele-big"><span class="tele-speed">${s.v}</span><span class="tele-unit">km/h</span></div>
+      <div class="tele-big"><span class="tele-speed">${speedVal(s.v)}</span><span class="tele-unit">${speedUnit()}</span></div>
       <div class="tele-gear"><span class="tele-k">Gear</span><b>${s.gear || 'N'}</b></div>
       <div class="tele-bars">
         <div class="tb"><span class="tele-k">RPM</span><span class="tb-track"><span class="tb-fill rpm" style="width:${rpmPct}%"></span></span><span class="tb-v">${s.rpm.toLocaleString('en-GB')}</span></div>
@@ -798,7 +810,8 @@ function renderTele() {
         <div class="tb"><span class="tele-k">Brake</span><span class="tb-track"><span class="tb-fill brk" style="width:${s.brk > 0 ? 100 : 0}%"></span></span><span class="tb-v">${s.brk > 0 ? 'On' : 'Off'}</span></div>
       </div>
     </div>
-    ${teleTrace(buf, { width: el.clientWidth - 24 })}`;
+    ${teleTrace(imperialSpeed() ? buf.map((x) => ({ ...x, v: x.v * 0.621371 })) : buf,
+    imperialSpeed() ? { width: el.clientWidth - 24, max: 225, ticks: [50, 100, 150, 200] } : { width: el.clientWidth - 24 })}`;
 }
 
 // Pit window ghost on the map: where the favourite (or the telemetry driver) would rejoin
@@ -1221,10 +1234,10 @@ let speedSort = store.get('speedSort', 'ST');
 
 function renderSpeeds() {
   const best = {};
-  for (const e of shownHist()) if (e.k === 'spd') { const b = (best[e.n] ||= {}); b[e.trap] = Math.max(b[e.trap] || 0, e.v); }
+  for (const e of shownHist()) if (e.k === 'spd') { const b = (best[e.n] ||= {}); b[e.trap] = Math.max(b[e.trap] || 0, speedVal(e.v)); }
   const nums = Object.keys(best).filter((n) => DL()[n]);
   const fnum = favNum();
-  const key = `spd|${JSON.stringify(best)}|${speedSort}|${fnum}`;
+  const key = `spd|${JSON.stringify(best)}|${speedSort}|${fnum}|${units.speed}`;
   if (!nums.length) return setBody(key, '', '<div class="empty">Speed-trap readings appear once cars are running.</div>');
   const top = {};
   for (const [t] of TRAPS) top[t] = Math.max(0, ...nums.map((n) => best[n][t] || 0));
@@ -1236,7 +1249,7 @@ function renderSpeeds() {
       <td><span class="drv"><span class="bar" style="background:${colorOf(n)}"></span><span class="tla">${esc(tlaOf(n))}</span></span></td>
       ${TRAPS.map(([t]) => { const v = best[n][t]; return `<td class="num-c${v && v === top[t] ? ' t-ob b' : ''}${t === speedSort ? ' b' : ''}">${v || ''}</td>`; }).join('')}
     </tr>`).join('')}</tbody></table></div>
-    <p class="hint chart-note">Best speed this session in km/h. I1 and I2 are the intermediate timing points, Finish is the finish line and Trap is the speed trap. Fastest at each point in purple. Tap a column to sort.</p>`;
+    <p class="hint chart-note">Best speed this session in ${speedUnit()}. I1 and I2 are the intermediate timing points, Finish is the finish line and Trap is the speed trap. Fastest at each point in purple. Tap a column to sort.</p>`;
   setBody(key, '', html);
 }
 
@@ -1400,9 +1413,17 @@ function openSettings() {
   const links = [['All sessions', ''], ['Race, qualifying and sprint only', '?main=1'], ['All sessions, alert 15 min before', '?alarm=15']];
   $('calLinks').innerHTML = links.map(([l, q]) => `<div class="cal-row"><a href="webcal://${esc(base + q)}">${esc(l)}</a><button type="button" class="btn sm" data-copy="${esc(`${location.protocol}//${base}${q}`)}">Copy link</button></div>`).join('');
   $('pitLoss').value = pitLossManual || 9.5;
+  renderUnits();
   showPitLoss();
   renderSettings();
   $('settings').showModal();
+}
+function renderUnits() {
+  for (const b of document.querySelectorAll('[data-unit]')) {
+    const [k, v] = b.dataset.unit.split(':');
+    b.classList.toggle('on', units[k] === v);
+    b.setAttribute('aria-pressed', String(units[k] === v));
+  }
 }
 function showPitLoss() {
   const p = pitLoss();
@@ -1434,6 +1455,16 @@ function renderSettings() {
 }
 
 $('settingsBtn').addEventListener('click', openSettings);
+$('settings').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-unit]');
+  if (!b) return;
+  const [k, v] = b.dataset.unit.split(':');
+  units = { ...units, [k]: v };
+  store.set('units', units);
+  renderUnits();
+  insKey = '';
+  dirty = true;
+});
 $('pitLoss').addEventListener('input', (e) => {
   pitLossManual = Number(e.target.value) < 10 ? 0 : Number(e.target.value); // below 10 s means automatic
   store.set('pitLoss', pitLossManual);

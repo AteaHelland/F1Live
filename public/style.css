@@ -433,6 +433,8 @@ body.editing .lay-ctl { border-bottom: 0; padding: 12px; }
 body.editing { padding-bottom: 80px; }
 
 /* settings additions */
+.unit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.unit-k { font-size: 14px; color: var(--muted); }
 .cal-links { display: flex; flex-direction: column; gap: 6px; }
 .cal-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; }
 .cal-row a { color: var(--text); }

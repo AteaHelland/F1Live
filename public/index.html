@@ -147,6 +147,13 @@
         <span class="hint">Highlighted in the timing tower, on the map, in the charts and standings, with the gaps around them shown above the timing tower. Their telemetry is shown by default.</span>
       </label>
 
+      <div class="field">
+        <span class="field-label">Units</span>
+        <div class="unit-row"><span class="unit-k">Temperature</span><span class="chips"><button type="button" class="chip-btn" data-unit="temp:C">°C</button><button type="button" class="chip-btn" data-unit="temp:F">°F</button></span></div>
+        <div class="unit-row"><span class="unit-k">Speed</span><span class="chips"><button type="button" class="chip-btn" data-unit="speed:kmh">km/h</button><button type="button" class="chip-btn" data-unit="speed:mph">mph</button></span></div>
+        <span class="hint">Speed also sets the wind: m/s with km/h, mph with mph. Saved in this browser.</span>
+      </div>
+
       <label class="field">
         <span class="field-label">Pit loss <b id="pitLossVal"></b></span>
         <input type="range" id="pitLoss" min="9.5" max="35" step="0.5" value="9.5">

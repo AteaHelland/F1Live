@@ -124,16 +124,17 @@ export function sparkline(values, w = 64, h = 18) {
 
 // ---------- telemetry trace: speed line + throttle and brake strips, last `span` seconds ----------
 // samples: [{ t (ms), v, thr, brk }]
-export function teleTrace(samples, { width, span = 30 }) {
+// Speeds in `samples` are already in the unit to show; `max` and `ticks` follow that unit.
+export function teleTrace(samples, { width, span = 30, max = 360, ticks = [100, 200, 300] }) {
   const W = Math.max(240, Math.round(width));
   const H = 118, padL = 34, padR = 8, top = 6, lineH = 70, stripH = 9;
   if (!samples.length) return '';
   const tEnd = samples[samples.length - 1].t;
   const x = (t) => padL + (1 - (tEnd - t) / (span * 1000)) * (W - padL - padR);
-  const y = (v) => top + lineH - (Math.min(360, v) / 360) * lineH;
+  const y = (v) => top + lineH - (Math.min(max, v) / max) * lineH;
   const vis = samples.filter((s) => tEnd - s.t <= span * 1000);
   const parts = [];
-  for (const v of [100, 200, 300]) {
+  for (const v of ticks) {
     parts.push(`<line class="rt-grid" x1="${padL}" x2="${W - padR}" y1="${y(v)}" y2="${y(v)}"/><text class="rt-ylbl" x="${padL - 5}" y="${y(v)}">${v}</text>`);
   }
   parts.push(`<path class="tt-speed" d="${vis.map((s, i) => `${i ? 'L' : 'M'}${x(s.t).toFixed(1)},${y(s.v).toFixed(1)}`).join('')}"/>`);
