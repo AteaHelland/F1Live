@@ -765,7 +765,7 @@ function renderWx() {
     <div class="wx-item"><span class="wx-k">Track</span><span class="wx-v">${tempStr(w.TrackTemp)}${trend}</span>${sparkline(track)}</div>
     <div class="wx-item"><span class="wx-k">Humidity</span><span class="wx-v">${Math.round(w.Humidity)}<span class="wx-u">%</span></span></div>
     <div class="wx-item"><span class="wx-k">Wind</span><span class="wx-v">${hasDir ? `<span class="wx-arrow" style="transform:rotate(${dir + 180}deg)" title="From ${COMPASS[Math.round(dir / 45) % 8]}">↑</span>` : ''}${windV}<span class="wx-u">${windU}${hasDir ? ` ${COMPASS[Math.round(dir / 45) % 8]}` : ''}</span></span></div>
-    <div class="wx-item"><span class="wx-k">Rain</span><span class="wx-v ${rain ? 'wx-rain' : ''}">${rain ? '🌧 Wet' : 'Dry'}</span></div>`;
+    <div class="wx-item"><span class="wx-k">Weather</span><span class="wx-v ${rain ? 'wx-rain' : ''}">${rain ? '🌧 Raining' : 'Dry'}</span></div>`;
   el.hidden = false;
 }
 
