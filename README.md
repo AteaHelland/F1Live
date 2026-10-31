@@ -43,6 +43,8 @@ second screen next to the broadcast.
   two columns or hide them. Phones and wide screens keep separate layouts, saved in each browser
 - The eye icon in the timing tower hides or shows a driver on the track map
 - Units: °C or °F, and km/h or mph (wind in m/s or mph), set in ⚙ settings per browser
+- Keep screen awake on phones and tablets: off, during sessions or always (⚙ settings). Needs
+  the https:// address, since browsers only allow it on secure pages
 - A broadcast-delay slider so the page matches your stream (TV and streaming usually run
   20–45 seconds behind the live data)
 

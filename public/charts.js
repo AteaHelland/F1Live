@@ -180,23 +180,57 @@ export function lapChart(series, { id, width, height, maxLap, yMin, yMax, yFmt =
   const lstep = lapMax > 60 ? 10 : lapMax > 25 ? 5 : lapMax > 10 ? 2 : 1;
   for (let l = 1; l <= lapMax; l++) if (l === 1 || l % lstep === 0) parts.push(`<text class="rt-xlbl" x="${x(l).toFixed(1)}" y="${H - 6}">${l}</text>`);
   for (const s of series) {
-    let d = '', pen = false;
+    // Runs of back-to-back laps, each drawn as one smooth curve.
+    const runs = [];
+    let run = null, prevLap = null;
     const marks = [];
     for (const [lap, v] of s.points) {
-      if (v == null || !Number.isFinite(v)) { pen = false; continue; }
+      if (v == null || !Number.isFinite(v)) { run = null; continue; }
+      if (prevLap != null && lap !== prevLap + 1) run = null; // only join laps that follow each other
+      prevLap = lap;
       if (v > hi || v < lo) { // out of range: open marker on the edge, line broken
         marks.push(`<circle class="lc-clip" cx="${x(lap).toFixed(1)}" cy="${y(v > hi ? hi : lo).toFixed(1)}" r="3" style="stroke:${esc(s.color)}"/>`);
-        pen = false;
+        run = null;
         continue;
       }
-      d += `${pen ? 'L' : 'M'}${x(lap).toFixed(1)},${y(v).toFixed(1)}`;
-      pen = true;
+      if (!run) runs.push((run = []));
+      run.push([x(lap), y(v)]);
       marks.push(`<circle class="lc-dot" cx="${x(lap).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.5" style="fill:${esc(s.color)}"/>`);
     }
+    const d = runs.map(smoothPath).join('');
     if (d) parts.push(`<path class="rt-halo" d="${d}"/><path class="rt-line${s.dashed ? ' dashed' : ''}" d="${d}" style="stroke:${esc(s.color)}"/>`);
     parts.push(marks.join(''));
   }
   parts.push(`<line class="rt-cross" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/>`);
   const svg = `<svg class="trace lapchart" data-chart="${esc(id)}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(label)}">${parts.join('')}</svg>`;
   return { svg, scale: { padL: pad.l, padR: pad.r, W, lapMax, x } };
+}
+
+// A smooth curve through every point (monotone cubic, Fritsch-Carlson): it passes exactly
+// through each value and never overshoots, so a bend can't suggest a lap that didn't happen.
+export function smoothPath(pts) {
+  const n = pts.length;
+  if (!n) return '';
+  const f = (v) => v.toFixed(1);
+  if (n < 3) return pts.map(([px, py], i) => `${i ? 'L' : 'M'}${f(px)},${f(py)}`).join('');
+  const dx = [], slope = [];
+  for (let i = 0; i < n - 1; i++) {
+    dx.push(pts[i + 1][0] - pts[i][0]);
+    slope.push((pts[i + 1][1] - pts[i][1]) / (dx[i] || 1));
+  }
+  const m = [slope[0]];
+  for (let i = 1; i < n - 1; i++) m.push(slope[i - 1] * slope[i] <= 0 ? 0 : (slope[i - 1] + slope[i]) / 2);
+  m.push(slope[n - 2]);
+  for (let i = 0; i < n - 1; i++) {
+    if (slope[i] === 0) { m[i] = 0; m[i + 1] = 0; continue; }
+    const a = m[i] / slope[i], b = m[i + 1] / slope[i];
+    const h = a * a + b * b;
+    if (h > 9) { const t = 3 / Math.sqrt(h); m[i] = t * a * slope[i]; m[i + 1] = t * b * slope[i]; }
+  }
+  let d = `M${f(pts[0][0])},${f(pts[0][1])}`;
+  for (let i = 0; i < n - 1; i++) {
+    const h = dx[i] / 3;
+    d += `C${f(pts[i][0] + h)},${f(pts[i][1] + m[i] * h)} ${f(pts[i + 1][0] - h)},${f(pts[i + 1][1] - m[i + 1] * h)} ${f(pts[i + 1][0])},${f(pts[i + 1][1])}`;
+  }
+  return d;
 }

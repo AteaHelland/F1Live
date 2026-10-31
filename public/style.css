@@ -35,6 +35,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .flagbar[data-status="2"] { background: var(--yellow); }
 .flagbar[data-status="4"] { background: var(--orange); animation: pulse 1.2s infinite; }
 .flagbar[data-status="5"] { background: var(--red); }
+.flagbar[data-status="chq"] { background: repeating-conic-gradient(#fff 0 25%, #222 0 50%) 0 0 / 8px 8px; }
 .flagbar[data-status="6"], .flagbar[data-status="7"] { background: repeating-linear-gradient(90deg, var(--orange) 0 24px, transparent 24px 36px); }
 @keyframes pulse { 50% { opacity: .45; } }
 
@@ -234,6 +235,11 @@ body.is-live .tower tbody tr { cursor: pointer; }
 .q-bar b { color: var(--text); font-variant-numeric: tabular-nums; }
 .q-part { font-weight: 900; font-size: 15px; color: #fff; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; }
 .q-cut { margin-left: auto; }
+.ko-row td { padding: 0 !important; height: auto !important; border-bottom: 0 !important; }
+.ko-btn { width: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 10px 16px; background: var(--panel-2); border: 0; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; text-align: left; cursor: pointer; white-space: normal; }
+.ko-btn b { color: var(--text); font-weight: 700; }
+.ko-act { margin-left: auto; color: var(--text); font-weight: 700; }
+.q-chq { width: 100%; color: var(--text); font-weight: 700; }
 .tower tr.dz { background: rgba(225, 6, 0, .09) !important; }
 .tower tr.dz .c-pos { color: var(--red); }
 .tower tr.cut td { border-bottom: 2px solid var(--red); }
@@ -261,6 +267,22 @@ td.c-ghost.drop { color: var(--text); }
 .h2h-tbl td, .h2h-tbl th { width: 38%; }
 .h2h-tbl td:first-child, .h2h-tbl th:first-child { width: 24%; }
 .h2h-tbl .tyre { vertical-align: middle; }
+/* sector comparison */
+.sec-cmp { display: flex; flex-direction: column; }
+.sc-row { display: grid; grid-template-columns: 44px 76px minmax(0, 1fr) 76px; align-items: center; gap: 10px; height: 34px; border-bottom: 1px solid rgba(36, 42, 50, .6); font-variant-numeric: tabular-nums; }
+.sc-row.total { border-bottom: 0; border-top: 1px solid var(--line); }
+.sc-head { height: 26px; font-size: 12px; font-weight: 700; letter-spacing: .6px; color: var(--muted); }
+.sc-k { color: var(--muted); font-weight: 700; font-size: 13px; }
+.sc-t { font-size: 15px; color: var(--muted); }
+.sc-t.win { color: var(--text); font-weight: 700; }
+.r { text-align: right; }
+.sc-mid { position: relative; height: 14px; }
+.sc-mid::before { content: ''; position: absolute; left: 50%; top: -6px; bottom: -6px; width: 1px; background: #4a5361; }
+.sc-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; min-width: 2px; }
+.sc-d { position: absolute; top: 50%; transform: translateY(-50%); font-size: 12px; font-weight: 700; color: var(--text); white-space: nowrap; }
+.sc-mid-h { display: flex; justify-content: space-between; font-weight: 600; letter-spacing: 0; text-transform: none; font-size: 11px; }
+.sc-row.total .sc-t { font-size: 15px; }
+
 .sub-h { margin: 16px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
 .sub-h .muted { text-transform: none; letter-spacing: 0; font-weight: 600; }
 .lc-dot { stroke: var(--panel); stroke-width: 1; }
@@ -435,6 +457,8 @@ body.editing .lay-ctl { border-bottom: 0; padding: 12px; }
 .lb-text { font-size: 14px; }
 body.editing { padding-bottom: 80px; }
 
+.err-box { position: fixed; left: 12px; bottom: 12px; z-index: 30; max-width: min(520px, calc(100vw - 24px)); padding: 8px 12px; border-radius: 8px; background: #2a1414; border: 1px solid var(--red); color: var(--text); font-size: 13px; }
+
 /* settings additions */
 .unit-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .unit-k { font-size: 14px; color: var(--muted); }
@@ -508,6 +532,9 @@ body.editing { padding-bottom: 80px; }
   .ins-tools { padding: 10px 12px 0; }
   .ins-body { padding: 10px 12px 12px; }
   .hide-sm { display: none; }
+  .sc-row { grid-template-columns: 30px 64px minmax(0, 1fr) 64px; gap: 6px; }
+  .sc-t, .sc-row.total .sc-t { font-size: 13px; }
+  .sc-mid-h span { font-size: 10px; }
   .tbl .drv .team { display: none; }
   .tabs { gap: 2px; flex-wrap: nowrap; }
   .tabs button { font-size: 12px; letter-spacing: .3px; padding: 4px 5px; white-space: nowrap; }

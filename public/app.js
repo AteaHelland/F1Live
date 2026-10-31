@@ -30,6 +30,8 @@ let insTab = store.get('insTab', '');
 let radioMine = store.get('radioMine', false);
 let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
 let mapHidden = new Set(store.get('mapHidden', [])); // driver codes hidden on the track map
+let showKO = store.get('showKO', false);
+let wakeMode = store.get('wake', 'live'); // off | live | always // qualifying: show drivers knocked out in earlier parts
 let units = { temp: 'C', speed: 'kmh', ...store.get('units', {}) };
 let traceFilter = store.get('traceFilter', 10);
 let traceFocus = null;       // driver number highlighted from the legend
@@ -93,8 +95,14 @@ const TRACK = {
 };
 const sessionStatus = () => state.SessionStatus?.Status || null;
 const hasSession = () => Boolean(state.SessionInfo?.Name);
-const isLive = () => hasSession() && ['Started', 'Aborted'].includes(sessionStatus()) &&
-  status?.live?.status === 'connected';
+// Cars out on track: not in the pit lane, not knocked out, retired or stopped.
+const carsOnTrack = () => Object.values(state.TimingData?.Lines || {})
+  .filter((l) => l && l.InPit === false && !l.KnockedOut && !l.Retired && !l.Stopped).length;
+// Qualifying after the clock has run out: the part isn't over until every car is back in the
+// pit lane, because the laps started before the flag still count.
+const qualiRunDown = () => sessionType() === 'Qualifying' && clockSecs() === 0 && carsOnTrack() > 0;
+const isLive = () => hasSession() && status?.live?.status === 'connected' &&
+  (['Started', 'Aborted'].includes(sessionStatus()) || qualiRunDown());
 
 // ---------- what kind of session this is ----------
 // F1's feed has been seen labelling a practice session as the race (with race-style laps and
@@ -212,13 +220,18 @@ function dur(ms) {
   return `${m}m ${String(sec).padStart(2, '0')}s`;
 }
 
-function clockRemaining() {
+function clockSecs() {
   const c = state.ExtrapolatedClock;
   if (!c?.Remaining) return null;
   const [h, m, s] = c.Remaining.split(':').map(Number);
   let secs = h * 3600 + m * 60 + s;
   if (c.Extrapolating && c.Utc) secs -= (shownNow() - parseUtc(c.Utc).getTime()) / 1000;
-  secs = Math.max(0, Math.floor(secs));
+  return Math.max(0, Math.floor(secs));
+}
+
+function clockRemaining() {
+  const secs = clockSecs();
+  if (secs == null) return null;
   return `${Math.floor(secs / 3600)}:${String(Math.floor((secs % 3600) / 60)).padStart(2, '0')}:${String(secs % 60).padStart(2, '0')}`;
 }
 
@@ -241,7 +254,7 @@ function renderHeader() {
     pill.dataset.status = 'none';
     pill.textContent = !hasSession() ? 'No session' : finished ? 'Session finished' : 'Not running';
   }
-  $('flagbar').dataset.status = live && code ? code : 'none';
+  $('flagbar').dataset.status = live && qualiRunDown() ? 'chq' : live && code ? code : 'none';
 
   const lc = state.LapCount;
   $('lapInfo').innerHTML = hasSession() && lc?.CurrentLap && sessionType() === 'Race'
@@ -279,7 +292,10 @@ function renderNext() {
     const name = isLive() && si?.Name ? `${sessionName()}${q ? ` · ${q.label}` : ''}` : onNow?.name;
     const gp = isLive() && si?.Meeting?.Name ? si.Meeting.Name : wk?.name;
     const rem = isLive() ? clockRemaining() : null;
-    const count = rem ? `${rem} left` : onNow ? `until ${fmtTime.format(new Date(onNow.endMs))}` : '';
+    const n = carsOnTrack();
+    const count = isLive() && qualiRunDown()
+      ? `🏁 ${n} car${n === 1 ? '' : 's'} on track`
+      : rem ? `${rem} left` : onNow ? `until ${fmtTime.format(new Date(onNow.endMs))}` : '';
     html = `<span class="nx-label live">Live now</span>
       <span class="nx-main"><b>${esc(name || 'Session')}</b><span class="nx-gp"> · ${esc(shortGp(gp))}</span></span>
       ${count ? `<span class="nx-count">${esc(count)}</span>` : ''}`;
@@ -455,7 +471,7 @@ function renderTower() {
   if (q && hasSession()) {
     qbar.innerHTML = `<span class="q-part">${esc(q.label)}</span>${q.advance
       ? `<span>Top <b>${q.advance}</b> go through to ${esc(q.prefix)}${q.part + 1}</span><span class="q-cut">Cut-off ${cut ? `<b>${esc(cut.time)}</b> (P${q.advance})` : '<b>–</b>'}</span>`
-      : '<span>Final part: fight for pole</span>'}`;
+      : '<span>Final part: fight for pole</span>'}${qualiRunDown() ? `<span class="q-chq">🏁 Chequered flag · ${carsOnTrack()} still on a lap</span>` : ''}`;
     qbar.hidden = false;
   } else qbar.hidden = true;
 
@@ -466,7 +482,15 @@ function renderTower() {
   const pg = kind !== 'race' && !q ? practiceGaps(rows) : null;
   $('ghostHead').title = pw ? `Where each driver would rejoin if they pitted now (pit loss ${pw.loss.toFixed(1)} s, ${pw.source}${pw.factor < 1 ? ', reduced under safety car' : ''})` : '';
 
-  table.tBodies[0].innerHTML = rows.map(([num, l]) => {
+  // Qualifying: drivers knocked out in earlier parts fold into one line at the bottom.
+  const ko = q && q.part > 1 ? rows.filter(([, l]) => l.KnockedOut) : [];
+  const shownRows = ko.length && !showKO ? rows.filter(([, l]) => !l.KnockedOut) : rows;
+  const koByPart = {};
+  for (const [num, l] of ko) (koByPart[koPart(l, q)] ||= []).push(tlaOf(num));
+  const koLine = ko.length
+    ? `<tr class="ko-row"><td colspan="13"><button type="button" class="ko-btn" data-ko>${Object.entries(koByPart).sort().map(([part, tlas]) => `<span><b>Out in ${esc(part)}:</b> ${tlas.map(esc).join(', ')}</span>`).join('')}<span class="ko-act">${showKO ? 'Hide ▴' : 'Show ▾'}</span></button></td></tr>`
+    : '';
+  table.tBodies[0].innerHTML = shownRows.map(([num, l]) => {
     const d = drivers[num] || {};
     const out = l.Retired || l.Stopped || l.KnockedOut;
     let gap, int;
@@ -512,7 +536,7 @@ function renderTower() {
       <td class="c-ghost${w && w.pos > pos ? ' drop' : ''}"${w ? ` title="${esc(pitText(w))}"` : ''}>${w ? `P${w.pos}` : ''}</td>
       <td class="c-pit">${l.NumberOfPitStops || ''}</td>
     </tr>`;
-  }).join('');
+  }).join('') + koLine;
   renderFavBar(rows, kind);
 }
 
@@ -720,7 +744,8 @@ function renderMap() {
     }
     g.querySelector('circle').setAttribute('fill', `#${d.TeamColour || '888'}`);
     g.querySelector('text').textContent = d.Tla || num;
-    g.style.display = mapHidden.has(d.Tla || num) ? 'none' : '';
+    const koHidden = !showKO && state.TimingData?.Lines?.[num]?.KnockedOut && qInfo()?.part > 1;
+    g.style.display = mapHidden.has(d.Tla || num) || koHidden ? 'none' : '';
     const [x, y] = project(e.X, e.Y);
     g.style.transform = `translate(${x}px, ${y}px)`;
     const line = state.TimingData?.Lines?.[num];
@@ -1279,10 +1304,11 @@ function renderH2H() {
   const q = qInfo();
   const race = isRaceSession();
   const laps = shownHist().filter((e) => e.k === 'lap' && (e.n === a || e.n === b));
+  const secLaps = shownHist().filter((e) => e.k === 'sec' && (e.n === a || e.n === b));
   const width = $('insBody').clientWidth - 8;
   const lines = state.TimingData?.Lines || {};
   const la = lines[a] || {}, lb = lines[b] || {};
-  const key = `h2h|${a}|${b}|${laps.length}|${width}|${JSON.stringify([la.Position, lb.Position, la.GapToLeader, lb.GapToLeader, la.LastLapTime?.Value, lb.LastLapTime?.Value, q?.part])}`;
+  const key = `h2h|${a}|${b}|${laps.length}|${secLaps.length}|${width}|${JSON.stringify([la.Position, lb.Position, la.GapToLeader, lb.GapToLeader, la.LastLapTime?.Value, lb.LastLapTime?.Value, q?.part])}`;
   if (key === insKey) return;
   const opts = (sel) => order.map(([n, l], i) => `<option value="${esc(tlaOf(n))}"${n === sel ? ' selected' : ''}>P${esc(isPracticeView() ? i + 1 : l.Position || '')} ${esc(tlaOf(n))}</option>`).join('');
   const tools = `<div class="h2h-pick"><select class="sel" data-h2h="a" aria-label="First driver">${opts(a)}</select><span class="muted">vs</span><select class="sel" data-h2h="b" aria-label="Second driver">${opts(b)}</select></div>`;
@@ -1302,13 +1328,18 @@ function renderH2H() {
   const ta = times(LA), tb = times(LB);
   // Representative laps: within 7% of the median, so pit, safety-car and odd timing laps
   // (one bad value can't distort the scale) are left out.
-  const clean = (arr) => {
-    if (!arr.length) return arr;
+  // Push laps: within 7% of the fastest real lap. "Real" skips timing glitches far below
+  // the typical lap. In practice most laps are out-laps and in-laps, so the fastest lap,
+  // not the typical one, sets what counts as a push lap.
+  const PUSH = 1.07;
+  const fastest = (arr) => {
+    if (!arr.length) return null;
     const sorted = arr.map(([, t]) => t).sort((x, y) => x - y);
-    const med = sorted[Math.floor(sorted.length / 2)];
-    return arr.filter(([, t]) => t <= med * 1.07 && t >= med * 0.93);
+    const floor = sorted[Math.floor(sorted.length / 2)] * 0.6;
+    return sorted.find((t) => t >= floor) ?? null;
   };
-  const avg5 = (arr) => { const c = clean(arr).slice(-5); return c.length ? c.reduce((s2, [, t]) => s2 + t, 0) / c.length : null; };
+  const pushLaps = (arr, ref = fastest(arr)) => (ref == null ? [] : arr.filter(([, t]) => t >= ref * 0.995 && t <= ref * PUSH));
+  const avg5 = (arr) => { const c = pushLaps(arr).slice(-5); return c.length ? c.reduce((s2, [, t]) => s2 + t, 0) / c.length : null; };
   const fmt = (t) => (t == null ? '–' : `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}`);
   const stint = (n) => list(state.TimingAppData?.Lines?.[n]?.Stints).pop();
   const tyre = (n) => { const st = stint(n); const c = (st?.Compound || '').toUpperCase(); return st ? `${tyreChip(c)} <span class="muted">${esc(st.TotalLaps ?? '')} laps</span>` : '–'; };
@@ -1342,22 +1373,29 @@ function renderH2H() {
   const statTable = `<table class="tbl h2h-tbl"><thead><tr><th></th><th>${head(a)}</th><th>${head(b)}</th></tr></thead>
     <tbody>${rowsH.map(([k, x, y]) => `<tr><td class="muted">${k}</td><td>${x}</td><td>${y}</td></tr>`).join('')}</tbody></table>`;
 
-  // Lap times chart (clean laps set the scale; slow laps sit on the top edge).
+  // Lap times chart: push laps only, scaled from the fastest lap of the two.
   const all = [...ta, ...tb];
   let charts = '';
-  if (all.length) {
-    const cl = clean(all).length ? clean(all) : all;
-    const yMin = Math.min(...cl.map(([, t]) => t)) - 0.2;
-    const yMax = Math.max(...cl.map(([, t]) => t)) + 0.2;
+  const ref = fastest(all);
+  const pa = pushLaps(ta, ref), pb = pushLaps(tb, ref);
+  if (pa.length || pb.length) {
+    const shown = [...pa, ...pb];
+    const hidden = all.length - shown.length;
+    const yMin = Math.min(...shown.map(([, t]) => t)) - 0.15;
+    const yMax = Math.max(...shown.map(([, t]) => t)) + 0.15;
     const maxLap = Math.max(...all.map(([l]) => l), race ? Number(state.LapCount?.TotalLaps) || 0 : 0);
     const series = [
-      { label: tlaOf(a), color: colA, dashed: false, points: ta },
-      { label: tlaOf(b), color: colB, dashed: sameTeam, points: tb },
+      { label: tlaOf(a), color: colA, dashed: false, points: pa, all: ta },
+      { label: tlaOf(b), color: colB, dashed: sameTeam, points: pb, all: tb },
     ];
     const lt = lapChart(series, { id: 'h2hTimes', width, height: width < 520 ? 190 : 230, maxLap, yMin, yMax, yFmt: (v) => `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, '0')}`, label: 'Lap times' });
-    chartReg.h2hTimes = { scale: lt.scale, tip: (lap) => `<b>Lap ${lap}</b>${series.map((x) => { const t = x.points.find((p) => p[0] === lap)?.[1]; return `<div class="tip-row"><span class="tip-sw${x.dashed ? ' dashed' : ''}" style="border-color:${esc(x.color)}"></span>${esc(x.label)}<span>${fmt(t)}</span></div>`; }).join('')}` };
+    chartReg.h2hTimes = { scale: lt.scale, tip: (lap) => `<b>Lap ${lap}</b>${series.map((x) => {
+      const t = x.all.find((p) => p[0] === lap)?.[1];
+      const slow = t != null && !x.points.some((p) => p[0] === lap);
+      return `<div class="tip-row"><span class="tip-sw${x.dashed ? ' dashed' : ''}" style="border-color:${esc(x.color)}"></span>${esc(x.label)}<span>${fmt(t)}${slow ? ' (slow lap)' : ''}</span></div>`;
+    }).join('')}` };
     const legend = `<div class="legend">${series.map((x) => `<span class="lg"><span class="lg-line${x.dashed ? ' dashed' : ''}" style="border-color:${esc(x.color)}"></span>${esc(x.label)}</span>`).join('')}</div>`;
-    charts += `<h3 class="sub-h">Lap times</h3>${legend}<div class="trace-wrap">${lt.svg}</div><p class="hint chart-note">Lower is faster. Open circles on the edges are laps far off the usual pace (pit stops, safety car, out-laps).</p>`;
+    charts += `<h3 class="sub-h">Lap times</h3>${legend}<div class="trace-wrap">${lt.svg}</div><p class="hint chart-note">Lower is faster. Push laps only: within 7% of the fastest lap.${hidden ? ` ${hidden} slower lap${hidden === 1 ? '' : 's'} (out-laps, in-laps, pit stops, safety car) left out; hover a lap to see its time.` : ''}</p>`;
 
     if (race) {
       const gaps = Object.keys(LA).map(Number).filter((l) => LB[l] && LA[l].gap != null && LB[l].gap != null)
@@ -1373,7 +1411,66 @@ function renderH2H() {
   } else {
     charts = '<p class="hint chart-note">Charts fill in lap by lap while the page is open on the server.</p>';
   }
-  setBody(key, tools, `<div class="h2h-head">${headline}</div>${statTable}${charts}`);
+  setBody(key, tools, `<div class="h2h-head">${headline}</div>${statTable}${sectorCompare(a, b, secLaps, q, race)}${charts}`);
+}
+
+// Sector by sector: each driver's last lap in races, their fastest lap otherwise
+// (in qualifying, their fastest in the part that's running).
+function sectorsOf(n, secLaps, q, race) {
+  const mine = secLaps.filter((e) => e.n === n);
+  const l = state.TimingData?.Lines?.[n] || {};
+  if (race) {
+    const e = mine[mine.length - 1];
+    return e ? { s: e.s3, lap: e.lap } : null;
+  }
+  // In qualifying: fastest in this part; until they've set one, fastest so far.
+  const inPart = q ? parseLap(partBest(l, q.part)) : null;
+  const target = inPart ?? bestOf(l);
+  const earlier = Boolean(q) && inPart == null;
+  if (target != null) {
+    // Sector times add up to the lap time (to within rounding).
+    const e = mine.slice().reverse().find((x) => Math.abs(x.s3[0] + x.s3[1] + x.s3[2] - target) < 0.06);
+    if (e) return { s: e.s3, lap: e.lap, earlier };
+  }
+  // Not seen that lap (page opened later): personal best sectors, which can be from different laps.
+  const bs = list(state.TimingStats?.Lines?.[n]?.BestSectors).map((x) => Number(x?.Value));
+  return bs.length === 3 && bs.every((v) => v > 0) ? { s: bs, mixed: true, earlier } : null;
+}
+
+function sectorCompare(a, b, secLaps, q, race) {
+  const A = sectorsOf(a, secLaps, q, race), B = sectorsOf(b, secLaps, q, race);
+  const what = race ? 'last lap' : q && !A?.earlier && !B?.earlier ? `fastest lap in ${q.label}` : q ? 'fastest lap so far' : 'fastest lap';
+  if (!A || !B) {
+    return `<h3 class="sub-h">Sectors · ${what}</h3><p class="hint chart-note">Appears once both drivers have completed a ${race ? 'lap' : 'timed lap'} while the page is open on the server.</p>`;
+  }
+  const rows = [0, 1, 2].map((i) => ({ label: `S${i + 1}`, a: A.s[i], b: B.s[i] }));
+  rows.push({ label: 'Lap', a: A.s[0] + A.s[1] + A.s[2], b: B.s[0] + B.s[1] + B.s[2], total: true });
+  const scale = Math.max(0.05, ...rows.map((r) => Math.abs(r.b - r.a)));
+  const ca = colorOf(a), cb = colorOf(b);
+  const fmtS = (v, total) => (total ? `${Math.floor(v / 60)}:${(v % 60).toFixed(3).padStart(6, '0')}` : v.toFixed(3));
+  const body = rows.map((r) => {
+    const d = r.b - r.a; // positive: A faster
+    const w = Math.min(48, (Math.abs(d) / scale) * 48);
+    const fasterA = d > 0.0005, fasterB = d < -0.0005;
+    const bar = fasterA
+      ? `<span class="sc-bar" style="right:50%;width:${w.toFixed(1)}%;background:${esc(ca)}"></span><span class="sc-d" style="left:calc(50% + 6px)">−${Math.abs(d).toFixed(3)}</span>`
+      : fasterB
+        ? `<span class="sc-bar" style="left:50%;width:${w.toFixed(1)}%;background:${esc(cb)}"></span><span class="sc-d" style="right:calc(50% + 6px)">−${Math.abs(d).toFixed(3)}</span>`
+        : '<span class="sc-d" style="left:50%;transform:translateX(-50%)">equal</span>';
+    return `<div class="sc-row${r.total ? ' total' : ''}">
+      <span class="sc-k">${r.label}</span>
+      <span class="sc-t r${fasterA ? ' win' : ''}">${fmtS(r.a, r.total)}</span>
+      <span class="sc-mid">${bar}</span>
+      <span class="sc-t${fasterB ? ' win' : ''}">${fmtS(r.b, r.total)}</span>
+    </div>`;
+  }).join('');
+  const lapNote = (x, n) => (x.mixed ? `${esc(tlaOf(n))}: best sectors (from different laps)` : x.lap ? `${esc(tlaOf(n))}: lap ${x.lap}` : '');
+  return `<h3 class="sub-h">Sectors · ${what}</h3>
+    <div class="sec-cmp">
+      <div class="sc-row sc-head"><span></span><span class="r">${esc(tlaOf(a))}</span><span class="sc-mid-h"><span>◂ ${esc(tlaOf(a))} faster</span><span>${esc(tlaOf(b))} faster ▸</span></span><span>${esc(tlaOf(b))}</span></div>
+      ${body}
+    </div>
+    <p class="hint chart-note">Bars show who was quicker in each sector and by how much. ${[lapNote(A, a), lapNote(B, b)].filter(Boolean).join(' · ')}</p>`;
 }
 
 // ---------- tooltip ----------
@@ -1420,6 +1517,7 @@ function openSettings() {
   $('calLinks').innerHTML = links.map(([l, q]) => `<div class="cal-row"><a href="webcal://${esc(base + q)}">${esc(l)}</a><button type="button" class="btn sm" data-copy="${esc(`${location.protocol}//${base}${q}`)}">Copy link</button></div>`).join('');
   $('pitLoss').value = pitLossManual || 9.5;
   renderUnits();
+  renderWakeState();
   showPitLoss();
   renderSettings();
   $('settings').showModal();
@@ -1462,6 +1560,13 @@ function renderSettings() {
 
 $('settingsBtn').addEventListener('click', openSettings);
 $('settings').addEventListener('click', (e) => {
+  const wb = e.target.closest('[data-wake]');
+  if (wb) {
+    wakeMode = wb.dataset.wake;
+    store.set('wake', wakeMode);
+    updateWake(); // inside the tap, which some browsers require
+    return;
+  }
   const b = e.target.closest('[data-unit]');
   if (!b) return;
   const [k, v] = b.dataset.unit.split(':');
@@ -1494,6 +1599,12 @@ $('calLinks').addEventListener('click', async (e) => {
 });
 // Tap a row in the timing tower to show that driver's telemetry.
 $('tower').addEventListener('click', (e) => {
+  if (e.target.closest('[data-ko]')) {
+    showKO = !showKO;
+    store.set('showKO', showKO);
+    dirty = true;
+    return;
+  }
   const vis = e.target.closest('[data-vis]');
   if (vis) {
     const k = vis.dataset.vis;
@@ -1589,6 +1700,44 @@ $('tokenClear').addEventListener('click', async () => {
   $('tokenMsg').textContent = 'Removed.';
   renderSettings();
 });
+
+// ---------- keep the screen awake ----------
+// Screen Wake Lock API: works over HTTPS in current Safari (iOS 16.4+) and Chrome. The browser
+// drops the lock when the page is hidden, so it's taken again when the page comes back.
+let wakeLock = null, wakeBusy = false, wakeErr = '';
+const wakeSupported = () => 'wakeLock' in navigator;
+async function updateWake() {
+  if (!wakeSupported() || wakeBusy) return;
+  const want = document.visibilityState === 'visible' && (wakeMode === 'always' || (wakeMode === 'live' && isLive()));
+  wakeBusy = true;
+  try {
+    if (want && !wakeLock) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeErr = '';
+      wakeLock.addEventListener('release', () => { wakeLock = null; renderWakeState(); });
+    } else if (!want && wakeLock) {
+      await wakeLock.release();
+      wakeLock = null;
+    }
+  } catch (e) {
+    wakeErr = e.message || 'refused';
+  } finally {
+    wakeBusy = false;
+    renderWakeState();
+  }
+}
+function renderWakeState() {
+  for (const b of document.querySelectorAll('[data-wake]')) b.classList.toggle('on', b.dataset.wake === wakeMode);
+  const el = $('wakeState');
+  if (!el) return;
+  if (!wakeSupported()) { el.textContent = window.isSecureContext ? 'Not supported by this browser' : 'Needs the https:// address'; el.className = 'warn'; }
+  else if (wakeErr) { el.textContent = `Not allowed (${wakeErr})`; el.className = 'warn'; }
+  else if (wakeLock) { el.textContent = 'On now'; el.className = 'ok'; }
+  else { el.textContent = wakeMode === 'off' ? 'Off' : wakeMode === 'live' ? 'Waiting for a session' : 'Off'; el.className = ''; }
+}
+document.addEventListener('visibilitychange', updateWake);
+document.addEventListener('pointerdown', () => { if (!wakeLock) updateWake(); }, { passive: true }); // some browsers need a tap first
+setInterval(updateWake, 5000); // follows sessions starting and ending
 
 // ---------- your own layout ----------
 // Cards can be moved up and down, between the two columns (on wide screens) and hidden.
@@ -1704,17 +1853,32 @@ narrowMQ.addEventListener('change', () => { if (editing) for (const c of documen
 applyLayout();
 
 // ---------- loop ----------
+// Each part renders on its own: an error in one card is reported and the rest keep updating.
+const PARTS = [
+  ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
+  ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['team radio', renderRadio],
+  ['insights', renderInsights], ['settings', () => { if ($('settings').open) renderSettings(); }],
+];
+const failing = new Map(); // part -> message
 function render() {
-  renderHeader();
-  renderNext();
-  renderWeekend();
-  renderTower();
-  renderMap();
-  renderTele();
-  renderRC();
-  renderRadio();
-  renderInsights();
-  if ($('settings').open) renderSettings();
+  for (const [name, fn] of PARTS) {
+    try {
+      fn();
+      if (failing.delete(name)) showErrors();
+    } catch (e) {
+      if (failing.get(name) !== e.message) {
+        console.error(`f1live: ${name} failed`, e);
+        failing.set(name, e.message);
+        showErrors();
+      }
+    }
+  }
+}
+function showErrors() {
+  let el = document.getElementById('errBox');
+  if (!failing.size) { el?.remove(); return; }
+  if (!el) { el = document.createElement('div'); el.id = 'errBox'; el.className = 'err-box'; document.body.append(el); }
+  el.textContent = `Display problem in ${[...failing].map(([n, m]) => `${n} (${m})`).join(', ')}. The rest of the page keeps updating.`;
 }
 
 setInterval(drain, 200);
@@ -1722,8 +1886,8 @@ setInterval(() => { dirty = true; }, 1000); // clocks and countdowns
 setInterval(loadSchedule, 10 * 60000);
 setInterval(() => loadStandings(), 60000);
 (function frame() {
+  requestAnimationFrame(frame); // scheduled first, so the loop can never stop
   if (dirty) { dirty = false; render(); }
-  requestAnimationFrame(frame);
 })();
 
 loadSchedule();
