@@ -39,6 +39,9 @@ second screen next to the broadcast.
 - Pit stop log: every stop with lap, tyre change and time in the pit lane
 - Speed traps: each driver's best speed at the intermediate points, finish line and speed trap
 - Head-to-head: any two drivers side by side, with lap times and the gap between them lap by lap
+- Your own layout: tap the layout button next to ⚙ to move cards up and down, between the
+  two columns or hide them. Phones and wide screens keep separate layouts, saved in each browser
+- The eye icon in the timing tower hides or shows a driver on the track map
 - A broadcast-delay slider so the page matches your stream (TV and streaming usually run
   20–45 seconds behind the live data)
 

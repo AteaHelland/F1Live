@@ -30,6 +30,9 @@
     <div class="top-mid" id="nextInfo" aria-live="polite"></div>
     <div class="top-right">
       <span id="liveChip" class="chip">Offline</span>
+      <button id="layoutBtn" class="icon-btn" aria-label="Arrange cards" title="Arrange cards">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+      </button>
       <button id="settingsBtn" class="icon-btn" aria-label="Settings">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
       </button>
@@ -49,6 +52,7 @@
           <table class="tower" id="tower">
             <thead>
               <tr>
+                <th class="c-vis" title="Show or hide on the track map"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></th>
                 <th class="c-pos">P</th>
                 <th class="c-drv">Driver</th>
                 <th class="c-gap">Gap</th>
@@ -86,7 +90,7 @@
     </div>
     <div class="col col-side">
       <section class="card map-card" id="mapCard">
-        <div class="card-head"><h2 id="mapTitle">Track</h2></div>
+        <div class="card-head"><h2 id="mapTitle">Track</h2><button type="button" id="mapShowAll" class="seg-on" hidden></button></div>
         <div class="map-wrap">
           <svg id="map" class="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-label="Track map with car positions"></svg>
           <div id="mapNote" class="map-note"></div>
@@ -120,6 +124,12 @@
   </main>
 
   <div id="tip" class="tip" role="tooltip" hidden></div>
+
+  <div id="layoutBar" class="layout-bar" hidden>
+    <span class="lb-text"><b>Arrange cards</b> <span class="muted" id="layoutHint"></span></span>
+    <button type="button" id="layoutReset" class="btn">Reset</button>
+    <button type="button" id="layoutDone" class="btn primary">Done</button>
+  </div>
 
   <dialog id="settings" class="settings">
     <form method="dialog" class="settings-inner">

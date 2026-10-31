@@ -29,6 +29,7 @@ let teleTla = store.get('teleTla', '');
 let insTab = store.get('insTab', '');
 let radioMine = store.get('radioMine', false);
 let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
+let mapHidden = new Set(store.get('mapHidden', [])); // driver codes hidden on the track map
 let traceFilter = store.get('traceFilter', 10);
 let traceFocus = null;       // driver number highlighted from the legend
 let standings = null, standingsErr = null, standingsAt = 0;
@@ -350,6 +351,9 @@ function pitWindow() {
 }
 const pitText = (w) => `Pit now → P${w.pos}${w.ahead ? `, ${w.ahead.d.toFixed(1)}s behind ${tlaOf(w.ahead.n)}` : ''}${w.behind ? `, ${w.behind.d.toFixed(1)}s ahead of ${tlaOf(w.behind.n)}` : ''}`;
 
+const EYE_ON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+const EYE_OFF = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.3 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+
 // ---------- timing tower ----------
 const LETTER = { SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W' };
 
@@ -429,6 +433,7 @@ function renderTower() {
       ? `<span class="tyre"><span class="t ${esc(comp)}"><span>${LETTER[comp] || '?'}</span></span><span class="age">${st.TotalLaps ?? ''}</span>${st.New === 'false' ? '<span class="used" title="Used set">u</span>' : ''}</span>`
       : '';
     return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}">
+      <td class="c-vis"><button type="button" class="vis${mapHidden.has(d.Tla || num) ? ' off' : ''}" data-vis="${esc(d.Tla || num)}" aria-pressed="${!mapHidden.has(d.Tla || num)}" aria-label="${mapHidden.has(d.Tla || num) ? 'Show' : 'Hide'} ${esc(d.Tla || num)} on the map">${mapHidden.has(d.Tla || num) ? EYE_OFF : EYE_ON}</button></td>
       <td class="c-pos">${esc(l.Position || '')}</td>
       <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span><span class="team">${esc(d.TeamName || '')}</span></span></td>
       <td class="c-gap${leadCls(gap)}">${out ? `<span class="badge out">${l.KnockedOut && q ? esc(koPart(l, q)) : 'OUT'}</span>` : esc(gap)}</td>
@@ -612,6 +617,9 @@ function renderMap() {
   const key = si?.Meeting?.Circuit?.Key;
   const year = (si?.StartDate || si?.Path || '').slice(0, 4) || new Date().getFullYear();
   $('mapTitle').textContent = si?.Meeting?.Circuit?.ShortName || 'Track';
+  const nHidden = Object.values(state.DriverList || {}).filter((d) => d?.Tla && mapHidden.has(d.Tla)).length;
+  $('mapShowAll').hidden = !nHidden;
+  $('mapShowAll').textContent = `${nHidden} hidden · Show all`;
   if (key != null && String(key) !== circuitKey) loadCircuit(String(key), year);
 
   renderWx();
@@ -645,6 +653,7 @@ function renderMap() {
     }
     g.querySelector('circle').setAttribute('fill', `#${d.TeamColour || '888'}`);
     g.querySelector('text').textContent = d.Tla || num;
+    g.style.display = mapHidden.has(d.Tla || num) ? 'none' : '';
     const [x, y] = project(e.X, e.Y);
     g.style.transform = `translate(${x}px, ${y}px)`;
     const line = state.TimingData?.Lines?.[num];
@@ -734,7 +743,7 @@ let ghostKey = '';
 function renderGhost(entries) {
   if (!ghostLayer || !geom || !circuit?.x?.length) return;
   const target = (isLive() && favNum()) || (isLive() ? teleNum() : null);
-  const w = target ? pitWindow()?.map[target] : null;
+  const w = target && !mapHidden.has(tlaOf(target)) ? pitWindow()?.map[target] : null;
   if (!w || !entries) { if (ghostKey) { ghostLayer.innerHTML = ''; ghostKey = ''; } return; }
   const N = circuit.x.length;
   const idxOf = (num) => (entries[num] ? nearestIndex({ x: entries[num].X, y: entries[num].Y }) : null);
@@ -1384,10 +1393,25 @@ $('calLinks').addEventListener('click', async (e) => {
 });
 // Tap a row in the timing tower to show that driver's telemetry.
 $('tower').addEventListener('click', (e) => {
+  const vis = e.target.closest('[data-vis]');
+  if (vis) {
+    const k = vis.dataset.vis;
+    if (mapHidden.has(k)) mapHidden.delete(k); else mapHidden.add(k);
+    store.set('mapHidden', [...mapHidden]);
+    ghostKey = '';
+    dirty = true;
+    return;
+  }
   const tr = e.target.closest('tr[data-num]');
   if (!tr || !isLive()) return;
   teleTla = tlaOf(tr.dataset.num);
   store.set('teleTla', teleTla);
+  dirty = true;
+});
+$('mapShowAll').addEventListener('click', () => {
+  mapHidden.clear();
+  store.set('mapHidden', []);
+  ghostKey = '';
   dirty = true;
 });
 $('teleDriver').addEventListener('change', (e) => { teleTla = e.target.value; store.set('teleTla', teleTla); dirty = true; });
@@ -1464,6 +1488,119 @@ $('tokenClear').addEventListener('click', async () => {
   $('tokenMsg').textContent = 'Removed.';
   renderSettings();
 });
+
+// ---------- your own layout ----------
+// Cards can be moved up and down, between the two columns (on wide screens) and hidden.
+// Wide and narrow screens keep separate layouts, saved in this browser.
+const CARDS = {
+  towerCard: 'Timing', insCard: 'Insights', mapCard: 'Track map', teleCard: 'Telemetry',
+  rcCard: 'Race control', radioCard: 'Team radio', weekendCard: 'Next race weekend',
+};
+const DEFAULT_WIDE = { main: ['towerCard', 'insCard'], side: ['mapCard', 'teleCard', 'rcCard', 'radioCard', 'weekendCard'], hidden: [] };
+const DEFAULT_NARROW = { main: ['towerCard', 'mapCard', 'teleCard', 'rcCard', 'radioCard', 'insCard', 'weekendCard'], side: [], hidden: [] };
+const narrowMQ = window.matchMedia('(max-width: 980px)');
+let editing = false;
+const layoutKey = () => (narrowMQ.matches ? 'layoutNarrow' : 'layoutWide');
+
+function getLayout() {
+  const narrow = narrowMQ.matches;
+  const def = narrow ? DEFAULT_NARROW : DEFAULT_WIDE;
+  const saved = store.get(layoutKey(), null);
+  if (!saved) return clone(def);
+  const ids = Object.keys(CARDS);
+  const seen = new Set();
+  const keep = (arr) => (arr || []).filter((id) => ids.includes(id) && !seen.has(id) && seen.add(id));
+  const L = { main: keep(saved.main), side: narrow ? [] : keep(saved.side), hidden: (saved.hidden || []).filter((id) => ids.includes(id)) };
+  if (narrow) L.main.push(...keep(saved.side));
+  // Cards added in a later version go where the default puts them.
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    const col = def.main.includes(id) ? 'main' : 'side';
+    L[col].push(id);
+  }
+  return L;
+}
+
+function applyLayout() {
+  const L = getLayout();
+  const cols = { main: document.querySelector('.col-main'), side: document.querySelector('.col-side') };
+  for (const col of ['main', 'side']) {
+    L[col].forEach((id, i) => {
+      const el = $(id);
+      if (el.parentElement !== cols[col]) cols[col].append(el);
+      el.style.order = String(i);
+      const hidden = L.hidden.includes(id);
+      el.classList.toggle('user-hidden', hidden && !editing);
+      el.classList.toggle('edit-hidden', hidden && editing);
+    });
+  }
+  if (editing) renderLayoutControls(L);
+  insKey = ''; // chart widths may have changed
+  dirty = true;
+}
+
+function saveLayout(L) {
+  store.set(layoutKey(), L);
+  applyLayout();
+}
+
+function renderLayoutControls(L) {
+  const narrow = narrowMQ.matches;
+  for (const id of Object.keys(CARDS)) {
+    const el = $(id);
+    let ctl = el.querySelector(':scope > .lay-ctl');
+    if (!ctl) {
+      ctl = document.createElement('div');
+      ctl.className = 'lay-ctl';
+      el.prepend(ctl);
+    }
+    const col = L.main.includes(id) ? 'main' : 'side';
+    const i = L[col].indexOf(id);
+    const hidden = L.hidden.includes(id);
+    const b = (act, label, text, disabled) => `<button type="button" class="lay-btn" data-lay="${act}" data-card="${id}" aria-label="${esc(label)}" title="${esc(label)}"${disabled ? ' disabled' : ''}>${text}</button>`;
+    ctl.innerHTML = `<span class="lay-name">${esc(CARDS[id])}${hidden ? ' <span class="lay-tag">Hidden</span>' : ''}${id === 'teleCard' ? ' <span class="muted">· live only</span>' : ''}</span>
+      <span class="lay-btns">
+        ${b('up', `Move ${CARDS[id]} up`, '↑', i === 0)}
+        ${b('down', `Move ${CARDS[id]} down`, '↓', i === L[col].length - 1)}
+        ${narrow ? '' : b('swap', `Move ${CARDS[id]} to the ${col === 'main' ? 'right' : 'left'} column`, col === 'main' ? '→' : '←')}
+        ${b('hide', hidden ? `Show ${CARDS[id]}` : `Hide ${CARDS[id]}`, hidden ? 'Show' : 'Hide')}
+      </span>`;
+  }
+}
+
+function layoutAction(act, id) {
+  const L = getLayout();
+  const col = L.main.includes(id) ? 'main' : 'side';
+  const arr = L[col];
+  const i = arr.indexOf(id);
+  if (act === 'up' && i > 0) [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
+  else if (act === 'down' && i < arr.length - 1) [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
+  else if (act === 'swap') { arr.splice(i, 1); L[col === 'main' ? 'side' : 'main'].push(id); }
+  else if (act === 'hide') L.hidden = L.hidden.includes(id) ? L.hidden.filter((x) => x !== id) : [...L.hidden, id];
+  saveLayout(L);
+  // Keep the moved card in view.
+  $(id).scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function setEditing(on) {
+  editing = on;
+  document.body.classList.toggle('editing', on);
+  $('layoutBar').hidden = !on;
+  $('layoutBtn').classList.toggle('on', on);
+  $('layoutHint').textContent = narrowMQ.matches ? '· this screen size' : '· wide screens';
+  if (!on) for (const c of document.querySelectorAll('.lay-ctl')) c.remove();
+  applyLayout();
+}
+
+$('layoutBtn').addEventListener('click', () => setEditing(!editing));
+$('layoutDone').addEventListener('click', () => setEditing(false));
+$('layoutReset').addEventListener('click', () => { store.set(layoutKey(), null); applyLayout(); });
+document.querySelector('main.grid').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-lay]');
+  if (b) { e.stopPropagation(); layoutAction(b.dataset.lay, b.dataset.card); }
+}, true);
+narrowMQ.addEventListener('change', () => { if (editing) for (const c of document.querySelectorAll('.lay-ctl')) c.remove(); applyLayout(); });
+applyLayout();
 
 // ---------- loop ----------
 function render() {
