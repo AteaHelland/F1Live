@@ -20,6 +20,20 @@ const races = Array.from({ length: 22 }, (_, i) => {
   };
 });
 
+// FAKE_PRACTICE_NOW=1: the last race weekend is happening now, with Practice 1 running,
+// to test how the page handles a feed that labels practice as the race.
+if (process.env.FAKE_PRACTICE_NOW === '1') {
+  const d = (ms) => new Date(Date.now() + ms);
+  const fp = d(-10 * 60000);
+  const race = d(2 * 86400000);
+  const today = new Date().toISOString().slice(0, 10);
+  const next = races.find((r) => r.date >= today) || races[races.length - 1];
+  Object.assign(next, {
+    date: race.toISOString().slice(0, 10), time: race.toISOString().slice(11, 19) + 'Z',
+    FirstPractice: { date: fp.toISOString().slice(0, 10), time: fp.toISOString().slice(11, 19) + 'Z' },
+  });
+}
+
 function shuffle(seed) {
   const a = st.drivers.map((_, i) => i);
   let s = seed;

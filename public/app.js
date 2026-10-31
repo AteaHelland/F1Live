@@ -95,6 +95,31 @@ const hasSession = () => Boolean(state.SessionInfo?.Name);
 const isLive = () => hasSession() && ['Started', 'Aborted'].includes(sessionStatus()) &&
   status?.live?.status === 'connected';
 
+// ---------- what kind of session this is ----------
+// F1's feed has been seen labelling a practice session as the race (with race-style laps and
+// gaps). When the calendar says practice or qualifying is on, the calendar wins, so race-only
+// features stay off. The calendar never overrides in the other direction.
+const CAL_TYPE = {
+  FirstPractice: 'Practice', SecondPractice: 'Practice', ThirdPractice: 'Practice',
+  Qualifying: 'Qualifying', SprintQualifying: 'Qualifying', SprintShootout: 'Qualifying', Sprint: 'Race', Race: 'Race',
+};
+// The latest calendar session that has started (or is about to) and isn't long over.
+function calendarSession(now = Date.now()) {
+  if (status?.demo) return null;
+  let found = null;
+  for (const s of schedule?.next?.sessions || []) {
+    const start = new Date(s.start).getTime();
+    if (now >= start - 20 * 60000 && now <= start + s.minutes * 60000 + 90 * 60000) found = s;
+  }
+  return found;
+}
+function feedMislabelled() {
+  const cal = calendarSession();
+  return cal && state.SessionInfo?.Type === 'Race' && CAL_TYPE[cal.key] && CAL_TYPE[cal.key] !== 'Race' ? cal : null;
+}
+const sessionType = () => { const m = feedMislabelled(); return m ? CAL_TYPE[m.key] : state.SessionInfo?.Type; };
+const sessionName = () => feedMislabelled()?.name || state.SessionInfo?.Name;
+
 // ---------- drivers, favourites, history ----------
 const DL = () => state.DriverList || {};
 const colorOf = (num) => `#${DL()[num]?.TeamColour || '666'}`;
@@ -119,12 +144,48 @@ function shownHist() {
   return hist.filter((e) => e.s === key && e.t <= cut);
 }
 
-// Drivers in running order.
+// Drivers in running order. In practice that's by best lap, worked out here so it's right
+// even when the feed sends race-style positions.
+const bestOf = (l) => parseLap(l?.BestLapTime?.Value || lastWith(l?.BestLapTimes, 'Value'));
+const isPracticeView = () => sessionType() !== 'Race' && !qInfo();
 function runningOrder() {
   const lines = state.TimingData?.Lines || {};
-  return Object.entries(lines)
-    .filter(([num, l]) => l && (DL()[num] || l.Position))
-    .sort(([, a], [, b]) => (Number(a.Position) || a.Line || 99) - (Number(b.Position) || b.Line || 99));
+  const feedPos = (l) => Number(l.Position) || l.Line || 99;
+  const rows = Object.entries(lines).filter(([num, l]) => l && (DL()[num] || l.Position));
+  if (isPracticeView()) {
+    return rows.sort(([, a], [, b]) => {
+      const ba = bestOf(a), bb = bestOf(b);
+      if (ba != null && bb != null) return ba - bb;
+      if (ba != null) return -1;
+      if (bb != null) return 1;
+      return feedPos(a) - feedPos(b);
+    });
+  }
+  return rows.sort(([, a], [, b]) => feedPos(a) - feedPos(b));
+}
+
+// The position to show: rank by best lap in practice, the feed's position otherwise.
+function posOf(num) {
+  const order = runningOrder();
+  if (isPracticeView()) { const i = order.findIndex(([n]) => n === num); return i >= 0 ? i + 1 : ''; }
+  return state.TimingData?.Lines?.[num]?.Position || '';
+}
+
+// Practice: position and gaps from best laps.
+function practiceGaps(rows) {
+  const out = {};
+  let fastest = null, prev = null;
+  rows.forEach(([num, l], i) => {
+    const b = bestOf(l);
+    if (b != null && fastest == null) fastest = b;
+    out[num] = {
+      pos: i + 1,
+      gap: b != null && i > 0 ? `+${(b - fastest).toFixed(3)}` : '',
+      int: b != null && prev != null && i > 0 ? `+${(b - prev).toFixed(3)}` : '',
+    };
+    if (b != null) prev = b;
+  });
+  return out;
 }
 
 function addTelemetry(data) {
@@ -164,7 +225,7 @@ function renderHeader() {
   const live = isLive();
   document.body.classList.toggle('is-live', live);
   $('sessionTitle').textContent = si?.Name
-    ? `${si.Meeting?.Name || ''} · ${si.Name}`
+    ? `${si.Meeting?.Name || ''} · ${sessionName()}`
     : (schedule?.next?.name || 'Formula 1');
 
   const code = state.TrackStatus?.Status;
@@ -180,7 +241,7 @@ function renderHeader() {
   $('flagbar').dataset.status = live && code ? code : 'none';
 
   const lc = state.LapCount;
-  $('lapInfo').innerHTML = hasSession() && lc?.CurrentLap
+  $('lapInfo').innerHTML = hasSession() && lc?.CurrentLap && sessionType() === 'Race'
     ? `Lap <b>${lc.CurrentLap}</b>${lc.TotalLaps ? `/${lc.TotalLaps}` : ''}` : '';
   $('clockInfo').innerHTML = ''; // time left is shown in the centre of the header
 
@@ -212,7 +273,7 @@ function renderNext() {
     // Prefer what the feed says is running (sessions can overrun their slot).
     const si = state.SessionInfo;
     const q = isLive() ? qInfo() : null;
-    const name = isLive() && si?.Name ? `${si.Name}${q ? ` · ${q.label}` : ''}` : onNow?.name;
+    const name = isLive() && si?.Name ? `${sessionName()}${q ? ` · ${q.label}` : ''}` : onNow?.name;
     const gp = isLive() && si?.Meeting?.Name ? si.Meeting.Name : wk?.name;
     const rem = isLive() ? clockRemaining() : null;
     const count = rem ? `${rem} left` : onNow ? `until ${fmtTime.format(new Date(onNow.endMs))}` : '';
@@ -267,7 +328,7 @@ function renderWeekend() {
 }
 
 // ---------- qualifying ----------
-const isQuali = () => state.SessionInfo?.Type === 'Qualifying';
+const isQuali = () => sessionType() === 'Qualifying';
 const at = (arr, i) => (arr ? arr[i] ?? arr[String(i)] : undefined); // arrays become index-keyed objects after merges
 
 // Which part is running and how many cars go through to the next one.
@@ -277,7 +338,7 @@ function qInfo() {
   const part = Number(td.SessionPart) || 0;
   if (!part) return null;
   const entries = list(td.NoEntries).map(Number);
-  const prefix = /sprint/i.test(state.SessionInfo?.Name || '') ? 'SQ' : 'Q';
+  const prefix = /sprint/i.test(sessionName() || '') ? 'SQ' : 'Q';
   const advance = part < entries.length ? entries[part] : null;
   return { part, prefix, label: `${prefix}${part}`, advance, entries };
 }
@@ -376,7 +437,7 @@ function renderTower() {
   const lines = state.TimingData?.Lines || {};
   const drivers = state.DriverList || {};
   const app = state.TimingAppData?.Lines || {};
-  const kind = state.SessionInfo?.Type === 'Race' ? 'race' : 'other';
+  const kind = sessionType() === 'Race' ? 'race' : 'other';
   const table = $('tower');
   table.dataset.kind = kind;
   table.dataset.gapmode = gapMode;
@@ -386,7 +447,7 @@ function renderTower() {
   const rows = runningOrder();
   const cut = cutoff(rows, q);
   $('towerTitle').textContent = state.SessionInfo?.Name
-    ? `${state.SessionInfo.Name}${q ? ` · ${q.label}` : ''}${isLive() ? '' : ' · last data'}` : 'Timing';
+    ? `${sessionName()}${q ? ` · ${q.label}` : ''}${isLive() ? '' : ' · last data'}` : 'Timing';
   const qbar = $('qBar');
   if (q && hasSession()) {
     qbar.innerHTML = `<span class="q-part">${esc(q.label)}</span>${q.advance
@@ -399,6 +460,7 @@ function renderTower() {
   const fnum = favNum();
   const tnum = teleNum();
   const pw = kind === 'race' ? pitWindow() : null;
+  const pg = kind !== 'race' && !q ? practiceGaps(rows) : null;
   $('ghostHead').title = pw ? `Where each driver would rejoin if they pitted now (pit loss ${pw.loss.toFixed(1)} s, ${pw.source}${pw.factor < 1 ? ', reduced under safety car' : ''})` : '';
 
   table.tBodies[0].innerHTML = rows.map(([num, l]) => {
@@ -412,8 +474,8 @@ function renderTower() {
       gap = partStat(l, q.part, 'TimeDiffToFastest');
       int = partStat(l, q.part, 'TimeDiffToPositionAhead');
     } else {
-      gap = lastWith(l.Stats, 'TimeDiffToFastest') || l.TimeDiffToFastest || '';
-      int = lastWith(l.Stats, 'TimeDiffToPositionAhead') || l.TimeDiffToPositionAhead || '';
+      gap = pg[num].gap;
+      int = pg[num].int;
     }
     const leadCls = (v) => (/^LAP/i.test(v) ? ' lead' : '');
     const last = l.LastLapTime || {};
@@ -434,7 +496,7 @@ function renderTower() {
       : '';
     return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}">
       <td class="c-vis"><button type="button" class="vis${mapHidden.has(d.Tla || num) ? ' off' : ''}" data-vis="${esc(d.Tla || num)}" aria-pressed="${!mapHidden.has(d.Tla || num)}" aria-label="${mapHidden.has(d.Tla || num) ? 'Show' : 'Hide'} ${esc(d.Tla || num)} on the map">${mapHidden.has(d.Tla || num) ? EYE_OFF : EYE_ON}</button></td>
-      <td class="c-pos">${esc(l.Position || '')}</td>
+      <td class="c-pos">${esc(pg ? pg[num].pos : l.Position || '')}</td>
       <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span><span class="team">${esc(d.TeamName || '')}</span></span></td>
       <td class="c-gap${leadCls(gap)}">${out ? `<span class="badge out">${l.KnockedOut && q ? esc(koPart(l, q)) : 'OUT'}</span>` : esc(gap)}</td>
       <td class="c-int${leadCls(int)}">${out ? '' : esc(int)}</td>
@@ -459,7 +521,9 @@ function renderFavBar(rows, kind) {
   if (!fnum || i < 0 || !hasSession()) { bar.hidden = true; return; }
   const [, l] = rows[i];
   const qi = qInfo();
-  const gapOf = (line) => (kind === 'race'
+  const pgs = kind !== 'race' && !qi ? practiceGaps(rows) : null;
+  const numOfLine = (line) => rows.find(([, x]) => x === line)?.[0];
+  const gapOf = (line) => (pgs ? pgs[numOfLine(line)]?.int : kind === 'race'
     ? line?.IntervalToPositionAhead?.Value
     : qi ? partStat(line, qi.part, 'TimeDiffToPositionAhead')
       : lastWith(line?.Stats, 'TimeDiffToPositionAhead') || line?.TimeDiffToPositionAhead) || '';
@@ -467,7 +531,7 @@ function renderFavBar(rows, kind) {
   const st = list(state.TimingAppData?.Lines?.[fnum]?.Stints).pop();
   const comp = (st?.Compound || '').toUpperCase();
   const parts = [
-    `<span class="fb-me"><span class="bar" style="background:${colorOf(fnum)}"></span><b>${esc(tlaOf(fnum))}</b> <span class="fb-pos">P${esc(l.Position || '–')}</span></span>`,
+    `<span class="fb-me"><span class="bar" style="background:${colorOf(fnum)}"></span><b>${esc(tlaOf(fnum))}</b> <span class="fb-pos">P${esc(posOf(fnum) || '–')}</span></span>`,
   ];
   if (l.Retired || l.Stopped) parts.push('<span class="muted">Out</span>');
   else {
@@ -707,11 +771,11 @@ function renderTele() {
   if (!isLive()) return;
   const sel = $('teleDriver');
   const order = runningOrder();
-  const key = order.map(([n]) => n).join(',') + fav;
+  const key = order.map(([n]) => n).join(',') + fav + isPracticeView();
   const num = teleNum();
   if (key !== teleOptsKey) {
     teleOptsKey = key;
-    sel.innerHTML = order.map(([n, l]) => `<option value="${esc(tlaOf(n))}">P${esc(l.Position || '')} ${esc(tlaOf(n))}${tlaOf(n) === fav ? ' ★' : ''}</option>`).join('');
+    sel.innerHTML = order.map(([n], i) => `<option value="${esc(tlaOf(n))}">P${esc(isPracticeView() ? i + 1 : state.TimingData.Lines[n].Position || '')} ${esc(tlaOf(n))}${tlaOf(n) === fav ? ' ★' : ''}</option>`).join('');
   }
   if (num) sel.value = tlaOf(num);
   const el = $('tele');
@@ -823,7 +887,7 @@ audio.addEventListener('ended', () => { playing = null; radioKey = ''; dirty = t
 audio.addEventListener('error', () => { playing = null; radioKey = ''; dirty = true; });
 
 // ---------- insights: strategy, race trace, standings, results ----------
-const isRaceSession = () => state.SessionInfo?.Type === 'Race';
+const isRaceSession = () => sessionType() === 'Race';
 let insKey = '';
 
 function currentInsTab() {
@@ -856,7 +920,7 @@ function renderStrategy() {
   const app = state.TimingAppData?.Lines || {};
   const fnum = favNum();
   const rows = order.map(([num, l]) => ({
-    num, pos: l.Position, tla: tlaOf(num), color: colorOf(num), fav: num === fnum,
+    num, pos: isPracticeView() ? order.findIndex(([n]) => n === num) + 1 : l.Position, tla: tlaOf(num), color: colorOf(num), fav: num === fnum,
     out: Boolean(l.Retired || l.Stopped), ranges: stintRanges(app[num]?.Stints),
   })).filter((r) => r.ranges.length);
   const lc = state.LapCount || {};
@@ -945,7 +1009,7 @@ const SPRINT_PTS = [8, 7, 6, 5, 4, 3, 2, 1];
 function projection() {
   if (!standings || !isRaceSession()) return null;
   if (!['Started', 'Aborted', 'Finished', 'Finalised', 'Ends'].includes(sessionStatus())) return null;
-  const sprint = /sprint/i.test(state.SessionInfo?.Name || '');
+  const sprint = /sprint/i.test(sessionName() || '');
   const wk = schedule?.next;
   const round = wk?.round || 0;
   if (!isLive()) {
@@ -1201,7 +1265,7 @@ function renderH2H() {
   const la = lines[a] || {}, lb = lines[b] || {};
   const key = `h2h|${a}|${b}|${laps.length}|${width}|${JSON.stringify([la.Position, lb.Position, la.GapToLeader, lb.GapToLeader, la.LastLapTime?.Value, lb.LastLapTime?.Value, q?.part])}`;
   if (key === insKey) return;
-  const opts = (sel) => order.map(([n, l]) => `<option value="${esc(tlaOf(n))}"${n === sel ? ' selected' : ''}>P${esc(l.Position || '')} ${esc(tlaOf(n))}</option>`).join('');
+  const opts = (sel) => order.map(([n, l], i) => `<option value="${esc(tlaOf(n))}"${n === sel ? ' selected' : ''}>P${esc(isPracticeView() ? i + 1 : l.Position || '')} ${esc(tlaOf(n))}</option>`).join('');
   const tools = `<div class="h2h-pick"><select class="sel" data-h2h="a" aria-label="First driver">${opts(a)}</select><span class="muted">vs</span><select class="sel" data-h2h="b" aria-label="Second driver">${opts(b)}</select></div>`;
 
   const sameTeam = DL()[a]?.TeamName && DL()[a]?.TeamName === DL()[b]?.TeamName;
@@ -1247,7 +1311,7 @@ function renderH2H() {
     : `<b>${esc(ahead)}</b> ${race ? 'ahead by' : 'faster by'} <b>${Math.abs(gapNow).toFixed(race ? 1 : 3)} s</b> <span class="muted">· ${esc(gapLabel)}</span>`;
 
   const rowsH = [
-    ['Position', `P${esc(la.Position || '–')}`, `P${esc(lb.Position || '–')}`],
+    ['Position', `P${esc(posOf(a) || '–')}`, `P${esc(posOf(b) || '–')}`],
     q ? [`Best in ${q.label}`, fmt(parseLap(partBest(la, q.part))), fmt(parseLap(partBest(lb, q.part)))]
       : ['Best lap', fmt(parseLap(la.BestLapTime?.Value || lastWith(la.BestLapTimes, 'Value'))), fmt(parseLap(lb.BestLapTime?.Value || lastWith(lb.BestLapTimes, 'Value')))],
     ['Last lap', esc(la.LastLapTime?.Value || '–'), esc(lb.LastLapTime?.Value || '–')],
