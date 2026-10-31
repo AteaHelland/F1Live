@@ -107,8 +107,8 @@ export function raceTrace(series, { width, height, maxLap, bands = [], endLabels
       parts.push(`<text class="rt-end${e.s.emphasis > 0 ? ' em' : ''}" x="${W - pad.r + 6}" y="${e.y.toFixed(1)}"><tspan style="fill:${esc(e.s.color)}">▪</tspan> ${esc(e.s.tla)}</text>`);
     }
   }
-  parts.push(`<line class="rt-cross" id="rtCross" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/>`);
-  const svg = `<svg class="trace" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Race trace: each driver's gap to the leader by lap">${parts.join('')}</svg>`;
+  parts.push(`<line class="rt-cross" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/>`);
+  const svg = `<svg class="trace" data-chart="trace" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Race trace: each driver's gap to the leader by lap">${parts.join('')}</svg>`;
   return { svg, scale: { padL: pad.l, padR: pad.r, W, lapMax, x } };
 }
 
@@ -152,4 +152,50 @@ export function teleTrace(samples, { width, span = 30 }) {
   strip(0, 'thr', 'tt-thr', 'Thr');
   strip(1, 'brk', 'tt-brk', 'Brk');
   return `<svg class="tele-trace" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Speed, throttle and brake over the last ${span} seconds">${parts.join('')}</svg>`;
+}
+
+// ---------- generic lap chart: one value per lap per series (lap times, gaps) ----------
+// series: [{ label, color, dashed, points: [[lap, value], ...] }]
+// Values outside yMin..yMax are drawn as open markers on the edge, so outliers (pit laps,
+// safety car laps, timing glitches) don't squash the rest of the chart.
+export function lapChart(series, { id, width, height, maxLap, yMin, yMax, yFmt = (v) => v.toFixed(1), zero = false, label = '' }) {
+  const pad = { l: 58, r: 12, t: 10, b: 24 };
+  const W = Math.max(260, Math.round(width));
+  const H = height;
+  const lapMax = Math.max(maxLap, 2);
+  const span = yMax - yMin || 1;
+  const raw = span / 4;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((x) => x >= raw);
+  const lo = Math.floor(yMin / step) * step, hi = Math.ceil(yMax / step) * step;
+  const x = (lap) => pad.l + ((lap - 1) / (lapMax - 1)) * (W - pad.l - pad.r);
+  const y = (v) => pad.t + (1 - (Math.max(lo, Math.min(v, hi)) - lo) / (hi - lo || 1)) * (H - pad.t - pad.b);
+  const parts = [];
+  for (let v = lo; v <= hi + 1e-9; v += step) {
+    const yy = y(v).toFixed(1);
+    parts.push(`<line class="rt-grid${zero && Math.abs(v) < 1e-9 ? ' zero' : ''}" x1="${pad.l}" x2="${W - pad.r}" y1="${yy}" y2="${yy}"/>`);
+    parts.push(`<text class="rt-ylbl" x="${pad.l - 6}" y="${yy}">${esc(yFmt(v))}</text>`);
+  }
+  const lstep = lapMax > 60 ? 10 : lapMax > 25 ? 5 : lapMax > 10 ? 2 : 1;
+  for (let l = 1; l <= lapMax; l++) if (l === 1 || l % lstep === 0) parts.push(`<text class="rt-xlbl" x="${x(l).toFixed(1)}" y="${H - 6}">${l}</text>`);
+  for (const s of series) {
+    let d = '', pen = false;
+    const marks = [];
+    for (const [lap, v] of s.points) {
+      if (v == null || !Number.isFinite(v)) { pen = false; continue; }
+      if (v > hi || v < lo) { // out of range: open marker on the edge, line broken
+        marks.push(`<circle class="lc-clip" cx="${x(lap).toFixed(1)}" cy="${y(v > hi ? hi : lo).toFixed(1)}" r="3" style="stroke:${esc(s.color)}"/>`);
+        pen = false;
+        continue;
+      }
+      d += `${pen ? 'L' : 'M'}${x(lap).toFixed(1)},${y(v).toFixed(1)}`;
+      pen = true;
+      marks.push(`<circle class="lc-dot" cx="${x(lap).toFixed(1)}" cy="${y(v).toFixed(1)}" r="2.5" style="fill:${esc(s.color)}"/>`);
+    }
+    if (d) parts.push(`<path class="rt-halo" d="${d}"/><path class="rt-line${s.dashed ? ' dashed' : ''}" d="${d}" style="stroke:${esc(s.color)}"/>`);
+    parts.push(marks.join(''));
+  }
+  parts.push(`<line class="rt-cross" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/>`);
+  const svg = `<svg class="trace lapchart" data-chart="${esc(id)}" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(label)}">${parts.join('')}</svg>`;
+  return { svg, scale: { padL: pad.l, padR: pad.r, W, lapMax, x } };
 }

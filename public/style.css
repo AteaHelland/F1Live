@@ -221,6 +221,45 @@ body.is-live .tower tbody tr { cursor: pointer; }
 .map .car.fav circle { stroke: var(--yellow); }
 .map .car.fav text { font-weight: 900; }
 
+/* qualifying */
+.q-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; padding: 8px 16px; border-bottom: 1px solid var(--line); font-size: 14px; color: var(--muted); }
+.q-bar[hidden] { display: none; }
+.q-bar b { color: var(--text); font-variant-numeric: tabular-nums; }
+.q-part { font-weight: 900; font-size: 15px; color: #fff; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 0 8px; }
+.q-cut { margin-left: auto; }
+.tower tr.dz { background: rgba(225, 6, 0, .09) !important; }
+.tower tr.dz .c-pos { color: var(--red); }
+.tower tr.cut td { border-bottom: 2px solid var(--red); }
+.q-risk b { color: var(--red); }
+.q-safe b { color: var(--green); }
+
+/* pit window */
+.c-ghost { width: 46px; text-align: center !important; color: var(--muted); font-size: 13px; font-weight: 600; }
+td.c-ghost { cursor: help; }
+td.c-ghost.drop { color: var(--text); }
+.tower:not([data-kind="race"]) .c-ghost { display: none; }
+.map .ghost { transition: transform 1s linear; }
+.map .ghost circle { fill: none; opacity: .9; }
+.map .ghost text { fill: var(--text); font-family: var(--font); font-weight: 700; paint-order: stroke; stroke: #0b0d10; }
+
+/* pit stops, speeds, head-to-head */
+.tyre-change { display: inline-flex; align-items: center; gap: 6px; }
+.tyre-change .arrow { color: var(--muted); }
+.tyre-change .used { color: var(--muted); font-size: 12px; }
+.th-sort { background: none; border: 0; padding: 0; font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.th-sort.on { color: var(--text); }
+.h2h-pick { display: flex; align-items: center; gap: 8px; }
+.h2h-head { font-size: 16px; margin: 2px 0 10px; }
+.h2h-head b { font-weight: 700; }
+.h2h-tbl td, .h2h-tbl th { width: 38%; }
+.h2h-tbl td:first-child, .h2h-tbl th:first-child { width: 24%; }
+.h2h-tbl .tyre { vertical-align: middle; }
+.sub-h { margin: 16px 0 6px; font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+.sub-h .muted { text-transform: none; letter-spacing: 0; font-weight: 600; }
+.lc-dot { stroke: var(--panel); stroke-width: 1; }
+.lc-clip { fill: var(--panel); stroke-width: 1.5; }
+.rt-grid.zero { stroke: #4a5361; stroke-width: 1.5; }
+
 /* weather strip under the map */
 .wx { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--line); }
 .wx[hidden] { display: none; }
@@ -264,6 +303,10 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
 
 /* tabs */
 .tabs { display: flex; gap: 4px; flex-wrap: wrap; }
+#insTabs { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+#insTabs::-webkit-scrollbar { display: none; }
+#insTabs button { white-space: nowrap; }
+.ins-card .card-head { padding-right: 8px; }
 .tabs button { background: none; border: 0; padding: 4px 8px; border-radius: 6px; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); cursor: pointer; }
 .tabs button[aria-selected="true"] { color: var(--text); background: var(--panel-2); box-shadow: inset 0 -2px 0 var(--red); }
 .count { font-size: 11px; color: var(--muted); letter-spacing: 0; margin-left: 4px; }
@@ -368,7 +411,11 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
 .btn.sm { padding: 3px 10px; font-size: 13px; }
 
 /* responsive */
+@media (max-width: 1520px) {
+  .tower .drv .team { display: none; } /* room for the "If pit" column */
+}
 @media (max-width: 1180px) {
+  .tower:not([data-kind="race"]) .c-best { display: table-cell; } /* best lap matters most outside races */
   /* not enough room for three header parts side by side: the countdown gets its own row */
   .top { grid-template-columns: minmax(0, 1fr) auto; row-gap: 10px; }
   .top-left { grid-column: 1; grid-row: 1; }
@@ -379,7 +426,7 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
 }
 @media (max-width: 980px) {
   /* one column: the two column wrappers dissolve and every card gets a place in one order */
-  .grid { display: flex; flex-direction: column; }
+  .grid { display: flex; flex-direction: column; align-items: stretch; }
   .col { display: contents; }
   .tower-card { order: 1; } .map-card { order: 2; } .tele-card { order: 3; } .rc-card { order: 4; }
   .radio-card { order: 5; } .ins-card { order: 6; } .weekend { order: 7; }
@@ -400,10 +447,12 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
   .tower { font-size: 14px; }
   .tower td { height: 36px; padding: 0 3px; }
   .tower th { padding: 6px 3px; }
-  .tower .c-last, .tower .c-pit, .drv .num { display: none; }
+  .tower .c-last, .tower .c-pit, .tower .c-ghost, .drv .num { display: none; }
+  .q-cut { margin-left: 0; }
   .tower[data-gapmode="int"] .c-gap, .tower[data-gapmode="gap"] .c-int { display: none; }
   .tower[data-kind="race"] .c-best { display: none; }
-  .tower:not([data-kind="race"]) .c-int { display: none; }
+  .tower:not([data-kind="race"]) .c-int, .tower:not([data-kind="race"]) .c-tyre { display: none; }
+  .tower:not([data-kind="race"])[data-gapmode="int"] .c-gap { display: table-cell; }
   .c-sec { width: 46px; }
   .sec { font-size: 11px; }
   .c-tyre { width: 50px; }

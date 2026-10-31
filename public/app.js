@@ -1,5 +1,5 @@
 import { applyItem, clone, list, sessionKey, stintRanges } from './merge.js';
-import { strategyChart, raceTrace, sparkline, teleTrace, COMPOUND_LETTER } from './charts.js';
+import { strategyChart, raceTrace, sparkline, teleTrace, lapChart, COMPOUND_LETTER } from './charts.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -28,12 +28,14 @@ let fav = store.get('fav', ''); // favourite driver's three-letter code
 let teleTla = store.get('teleTla', '');
 let insTab = store.get('insTab', '');
 let radioMine = store.get('radioMine', false);
+let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
 let traceFilter = store.get('traceFilter', 10);
 let traceFocus = null;       // driver number highlighted from the legend
 let standings = null, standingsErr = null, standingsAt = 0;
 let standTab = store.get('standTab', 'drivers');
 let season = null, seasonErr = null;
 let resSel = store.get('resSel', null); // { year, round, kind }
+let h2h = store.get('h2h', { a: '', b: '' }); // driver codes
 const resCache = new Map();
 
 // Server time minus the broadcast delay: the moment the page is "showing".
@@ -208,7 +210,8 @@ function renderNext() {
   if (isLive() || onNow) {
     // Prefer what the feed says is running (sessions can overrun their slot).
     const si = state.SessionInfo;
-    const name = isLive() && si?.Name ? si.Name : onNow?.name;
+    const q = isLive() ? qInfo() : null;
+    const name = isLive() && si?.Name ? `${si.Name}${q ? ` · ${q.label}` : ''}` : onNow?.name;
     const gp = isLive() && si?.Meeting?.Name ? si.Meeting.Name : wk?.name;
     const rem = isLive() ? clockRemaining() : null;
     const count = rem ? `${rem} left` : onNow ? `until ${fmtTime.format(new Date(onNow.endMs))}` : '';
@@ -262,6 +265,91 @@ function renderWeekend() {
     </ul>`;
 }
 
+// ---------- qualifying ----------
+const isQuali = () => state.SessionInfo?.Type === 'Qualifying';
+const at = (arr, i) => (arr ? arr[i] ?? arr[String(i)] : undefined); // arrays become index-keyed objects after merges
+
+// Which part is running and how many cars go through to the next one.
+function qInfo() {
+  if (!isQuali()) return null;
+  const td = state.TimingData || {};
+  const part = Number(td.SessionPart) || 0;
+  if (!part) return null;
+  const entries = list(td.NoEntries).map(Number);
+  const prefix = /sprint/i.test(state.SessionInfo?.Name || '') ? 'SQ' : 'Q';
+  const advance = part < entries.length ? entries[part] : null;
+  return { part, prefix, label: `${prefix}${part}`, advance, entries };
+}
+const partBest = (l, part) => at(l?.BestLapTimes, part - 1)?.Value || '';
+const partStat = (l, part, key) => at(l?.Stats, part - 1)?.[key] || '';
+
+// The part a knocked-out driver went out in, from where they finished.
+function koPart(l, q) {
+  const p = Number(l.Position);
+  for (let i = 1; i < q.entries.length; i++) if (p > q.entries[i]) return `${q.prefix}${i}`;
+  return 'OUT';
+}
+
+// Best time in this part of the last car that goes through.
+function cutoff(rows, q) {
+  if (!q?.advance) return null;
+  const row = rows.find(([, l]) => Number(l.Position) === q.advance);
+  const t = row ? partBest(row[1], q.part) : '';
+  return t ? { time: t, secs: parseLap(t) } : null;
+}
+
+// ---------- pit window ----------
+// Rough time lost to a green-flag pit stop, by circuit (adjustable in settings).
+const PIT_LOSS = [
+  ['sakhir', 23], ['bahrain', 23], ['jeddah', 20], ['melbourne', 19], ['albert park', 19], ['suzuka', 22],
+  ['shanghai', 23], ['miami', 20], ['monte carlo', 20], ['monaco', 20], ['catalunya', 22], ['barcelona', 22],
+  ['montreal', 19], ['spielberg', 20], ['silverstone', 21], ['spa', 21], ['hungaroring', 21], ['zandvoort', 20],
+  ['monza', 24], ['madr', 22], ['baku', 21], ['singapore', 28], ['marina bay', 28], ['austin', 21],
+  ['mexico', 22], ['interlagos', 21], ['sao paulo', 21], ['las vegas', 21], ['lusail', 25], ['yas', 22],
+];
+function pitLoss() {
+  if (pitLossManual) return { secs: pitLossManual, source: 'set by you' };
+  const n = String(state.SessionInfo?.Meeting?.Circuit?.ShortName || state.SessionInfo?.Meeting?.Location || '').toLowerCase();
+  const hit = n && PIT_LOSS.find(([k]) => n.includes(k));
+  return hit ? { secs: hit[1], source: 'typical for this circuit' } : { secs: 22, source: 'default' };
+}
+
+const gapSec = (l) => {
+  if (String(l?.Position) === '1') return 0;
+  const m = /^\+?(\d+(?:\.\d+)?)$/.exec(String(l?.GapToLeader ?? '').trim());
+  return m ? Number(m[1]) : null;
+};
+function parseLap(v) {
+  const m = /^(?:(\d+):)?(\d+(?:\.\d+)?)$/.exec(String(v || '').trim());
+  return m ? Number(m[1] || 0) * 60 + Number(m[2]) : null;
+}
+
+// Where each driver would rejoin if they pitted now: their gap to the leader plus the pit loss
+// (less under a safety car or VSC), placed among the cars on the lead lap.
+function pitWindow() {
+  if (!isRaceSession() || !hasSession()) return null;
+  const cars = runningOrder().map(([n, l]) => ({ n, l, g: gapSec(l) }))
+    .filter((c) => c.g != null && !c.l.Retired && !c.l.Stopped)
+    .sort((a, b) => a.g - b.g);
+  if (cars.length < 2) return null;
+  const code = state.TrackStatus?.Status;
+  const factor = code === '4' ? 0.55 : code === '6' || code === '7' ? 0.65 : 1;
+  const base = pitLoss();
+  const loss = base.secs * factor;
+  const map = {};
+  for (const c of cars) {
+    if (c.l.InPit) continue;
+    const G = c.g + loss;
+    const others = cars.filter((o) => o.n !== c.n);
+    const before = others.filter((o) => o.g <= G);
+    const ahead = before[before.length - 1];
+    const behind = others.find((o) => o.g > G);
+    map[c.n] = { pos: before.length + 1, G, ahead: ahead && { n: ahead.n, d: G - ahead.g }, behind: behind && { n: behind.n, d: behind.g - G } };
+  }
+  return { map, loss, factor, ...base };
+}
+const pitText = (w) => `Pit now → P${w.pos}${w.ahead ? `, ${w.ahead.d.toFixed(1)}s behind ${tlaOf(w.ahead.n)}` : ''}${w.behind ? `, ${w.behind.d.toFixed(1)}s ahead of ${tlaOf(w.behind.n)}` : ''}`;
+
 // ---------- timing tower ----------
 const LETTER = { SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W' };
 
@@ -290,13 +378,24 @@ function renderTower() {
   table.dataset.gapmode = gapMode;
   $('gapToggle').textContent = gapMode === 'int' ? 'Interval' : 'Gap';
   $('gapToggle').style.visibility = kind === 'race' ? 'visible' : 'hidden';
-  $('towerTitle').textContent = state.SessionInfo?.Name
-    ? `${state.SessionInfo.Name}${isLive() ? '' : ' · last data'}` : 'Timing';
-
+  const q = qInfo();
   const rows = runningOrder();
+  const cut = cutoff(rows, q);
+  $('towerTitle').textContent = state.SessionInfo?.Name
+    ? `${state.SessionInfo.Name}${q ? ` · ${q.label}` : ''}${isLive() ? '' : ' · last data'}` : 'Timing';
+  const qbar = $('qBar');
+  if (q && hasSession()) {
+    qbar.innerHTML = `<span class="q-part">${esc(q.label)}</span>${q.advance
+      ? `<span>Top <b>${q.advance}</b> go through to ${esc(q.prefix)}${q.part + 1}</span><span class="q-cut">Cut-off ${cut ? `<b>${esc(cut.time)}</b> (P${q.advance})` : '<b>–</b>'}</span>`
+      : '<span>Final part: fight for pole</span>'}`;
+    qbar.hidden = false;
+  } else qbar.hidden = true;
+
   $('towerEmpty').hidden = rows.length > 0;
   const fnum = favNum();
   const tnum = teleNum();
+  const pw = kind === 'race' ? pitWindow() : null;
+  $('ghostHead').title = pw ? `Where each driver would rejoin if they pitted now (pit loss ${pw.loss.toFixed(1)} s, ${pw.source}${pw.factor < 1 ? ', reduced under safety car' : ''})` : '';
 
   table.tBodies[0].innerHTML = rows.map(([num, l]) => {
     const d = drivers[num] || {};
@@ -305,6 +404,9 @@ function renderTower() {
     if (kind === 'race') {
       gap = l.GapToLeader ?? '';
       int = l.IntervalToPositionAhead?.Value ?? '';
+    } else if (q) {
+      gap = partStat(l, q.part, 'TimeDiffToFastest');
+      int = partStat(l, q.part, 'TimeDiffToPositionAhead');
     } else {
       gap = lastWith(l.Stats, 'TimeDiffToFastest') || l.TimeDiffToFastest || '';
       int = lastWith(l.Stats, 'TimeDiffToPositionAhead') || l.TimeDiffToPositionAhead || '';
@@ -312,7 +414,13 @@ function renderTower() {
     const leadCls = (v) => (/^LAP/i.test(v) ? ' lead' : '');
     const last = l.LastLapTime || {};
     const lastCls = last.OverallFastest ? 't-ob' : last.PersonalFastest ? 't-pb' : '';
-    const best = l.BestLapTime?.Value || lastWith(l.BestLapTimes, 'Value');
+    const best = q
+      ? (l.KnockedOut ? lastWith(l.BestLapTimes, 'Value') : partBest(l, q.part))
+      : l.BestLapTime?.Value || lastWith(l.BestLapTimes, 'Value');
+    const pos = Number(l.Position);
+    const dz = q?.advance && !l.KnockedOut && pos > q.advance;
+    const cutRow = q?.advance && pos === q.advance;
+    const w = pw?.map[num];
     const secs = list(l.Sectors);
     const stints = list(app[num]?.Stints);
     const st = stints[stints.length - 1];
@@ -320,10 +428,10 @@ function renderTower() {
     const tyre = st
       ? `<span class="tyre"><span class="t ${esc(comp)}"><span>${LETTER[comp] || '?'}</span></span><span class="age">${st.TotalLaps ?? ''}</span>${st.New === 'false' ? '<span class="used" title="Used set">u</span>' : ''}</span>`
       : '';
-    return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}">
+    return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}">
       <td class="c-pos">${esc(l.Position || '')}</td>
       <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span><span class="team">${esc(d.TeamName || '')}</span></span></td>
-      <td class="c-gap${leadCls(gap)}">${out ? '<span class="badge out">OUT</span>' : esc(gap)}</td>
+      <td class="c-gap${leadCls(gap)}">${out ? `<span class="badge out">${l.KnockedOut && q ? esc(koPart(l, q)) : 'OUT'}</span>` : esc(gap)}</td>
       <td class="c-int${leadCls(int)}">${out ? '' : esc(int)}</td>
       <td class="c-last ${lastCls}">${esc(last.Value || '')}</td>
       <td class="c-best">${esc(best || '')}</td>
@@ -331,6 +439,7 @@ function renderTower() {
       <td class="c-sec">${secCell(secs[1])}</td>
       <td class="c-sec">${secCell(secs[2])}</td>
       <td class="c-tyre">${l.InPit ? '<span class="badge">PIT</span>' : tyre}</td>
+      <td class="c-ghost${w && w.pos > pos ? ' drop' : ''}"${w ? ` title="${esc(pitText(w))}"` : ''}>${w ? `P${w.pos}` : ''}</td>
       <td class="c-pit">${l.NumberOfPitStops || ''}</td>
     </tr>`;
   }).join('');
@@ -344,9 +453,11 @@ function renderFavBar(rows, kind) {
   const i = rows.findIndex(([num]) => num === fnum);
   if (!fnum || i < 0 || !hasSession()) { bar.hidden = true; return; }
   const [, l] = rows[i];
+  const qi = qInfo();
   const gapOf = (line) => (kind === 'race'
     ? line?.IntervalToPositionAhead?.Value
-    : lastWith(line?.Stats, 'TimeDiffToPositionAhead') || line?.TimeDiffToPositionAhead) || '';
+    : qi ? partStat(line, qi.part, 'TimeDiffToPositionAhead')
+      : lastWith(line?.Stats, 'TimeDiffToPositionAhead') || line?.TimeDiffToPositionAhead) || '';
   const ahead = rows[i - 1], behind = rows[i + 1];
   const st = list(state.TimingAppData?.Lines?.[fnum]?.Stints).pop();
   const comp = (st?.Compound || '').toUpperCase();
@@ -359,6 +470,21 @@ function renderFavBar(rows, kind) {
     if (behind && !(behind[1].Retired || behind[1].Stopped)) parts.push(`<span class="fb-gap"><span class="muted">Behind</span> <b>${esc(tlaOf(behind[0]))}</b> ${esc(gapOf(behind[1]) || '–')}</span>`);
     if (st) parts.push(`<span class="fb-gap"><span class="muted">Tyre</span> <b>${LETTER[comp] || '?'}</b> ${esc(st.TotalLaps ?? '')} laps</span>`);
     if (l.LastLapTime?.Value) parts.push(`<span class="fb-gap"><span class="muted">Last</span> ${esc(l.LastLapTime.Value)}</span>`);
+    const q = qInfo();
+    if (q?.advance && !l.KnockedOut) {
+      const cut = cutoff(rows, q);
+      const mine = parseLap(partBest(l, q.part));
+      const pos = Number(l.Position);
+      if (mine == null) parts.push('<span class="fb-gap"><span class="muted">No time yet in</span> <b>' + esc(q.label) + '</b></span>');
+      else if (pos > q.advance && cut) parts.push(`<span class="fb-gap q-risk"><span class="muted">Needs</span> <b>−${(mine - cut.secs).toFixed(3)}</b> to get through</span>`);
+      else {
+        const first = rows.find(([, x]) => Number(x.Position) === q.advance + 1);
+        const fdz = first ? parseLap(partBest(first[1], q.part)) : null;
+        if (fdz != null) parts.push(`<span class="fb-gap q-safe"><span class="muted">Clear of the drop zone by</span> <b>${(fdz - mine).toFixed(3)}</b></span>`);
+      }
+    }
+    const w = kind === 'race' ? pitWindow()?.map[fnum] : null;
+    if (w) parts.push(`<span class="fb-gap"><span class="muted">${esc(pitText(w).split(',')[0])}</span>${w.ahead ? ` ${w.ahead.d.toFixed(1)}s behind <b>${esc(tlaOf(w.ahead.n))}</b>` : ''}</span>`);
   }
   bar.innerHTML = parts.join('');
   bar.hidden = false;
@@ -370,7 +496,7 @@ let circuitKey = null;
 let circuit = null;
 let geom = null; // { rot, viewBox, scale }
 const carEls = new Map();
-let trackLayer, flagLayer, carLayer;
+let trackLayer, flagLayer, ghostLayer, carLayer;
 let flagKey = '';
 
 function project(x, y) {
@@ -396,8 +522,9 @@ function buildTrack() {
   carEls.clear();
   trackLayer = document.createElementNS(SVGNS, 'g');
   flagLayer = document.createElementNS(SVGNS, 'g');
+  ghostLayer = document.createElementNS(SVGNS, 'g');
   carLayer = document.createElementNS(SVGNS, 'g');
-  svg.append(trackLayer, flagLayer, carLayer);
+  svg.append(trackLayer, flagLayer, ghostLayer, carLayer);
   flagKey = '';
   if (!circuit?.x?.length) { geom = null; return; }
   geom = { rot: circuit.rotation || 0 };
@@ -529,6 +656,7 @@ function renderMap() {
       if (isFav) carLayer.append(g); // draw on top
     }
   }
+  renderGhost(entries);
 }
 
 // ---------- weather ----------
@@ -600,6 +728,40 @@ function renderTele() {
     ${teleTrace(buf, { width: el.clientWidth - 24 })}`;
 }
 
+// Pit window ghost on the map: where the favourite (or the telemetry driver) would rejoin
+// if they pitted now, between the two cars around that spot.
+let ghostKey = '';
+function renderGhost(entries) {
+  if (!ghostLayer || !geom || !circuit?.x?.length) return;
+  const target = (isLive() && favNum()) || (isLive() ? teleNum() : null);
+  const w = target ? pitWindow()?.map[target] : null;
+  if (!w || !entries) { if (ghostKey) { ghostLayer.innerHTML = ''; ghostKey = ''; } return; }
+  const N = circuit.x.length;
+  const idxOf = (num) => (entries[num] ? nearestIndex({ x: entries[num].X, y: entries[num].Y }) : null);
+  const A = w.ahead ? idxOf(w.ahead.n) : null;
+  const B = w.behind ? idxOf(w.behind.n) : null;
+  let k = null;
+  if (A != null && B != null) {
+    const span = (A - B + N) % N; // forward along the track from the car behind to the car ahead
+    const tot = w.ahead.d + w.behind.d;
+    k = Math.round(B + span * (tot > 0 ? w.behind.d / tot : 0.5)) % N;
+  } else if (A != null) {
+    const lapSec = parseLap(state.TimingData?.Lines?.[target]?.LastLapTime?.Value) || 90;
+    k = Math.round(A - (w.ahead.d / lapSec) * N + N * 10) % N;
+  }
+  if (k == null) { ghostLayer.innerHTML = ''; ghostKey = ''; return; }
+  const key = `${target}|${k}`;
+  if (key === ghostKey) return;
+  ghostKey = key;
+  const [x, y] = geom.pts[k];
+  const r = geom.scale * 0.016;
+  const fs = geom.scale * 0.022;
+  ghostLayer.innerHTML = `<g class="ghost" style="transform:translate(${x}px,${y}px)">
+    <circle r="${r * 1.5}" stroke="${colorOf(target)}" stroke-width="${r * 0.4}" stroke-dasharray="${r * 0.6} ${r * 0.45}"/>
+    <text x="${r * 2}" y="${-r * 1.2}" font-size="${fs}" stroke-width="${fs * 0.18}">${esc(tlaOf(target))} pit → P${w.pos}</text>
+  </g>`;
+}
+
 // ---------- race control, team radio ----------
 function renderRC() {
   const msgs = list(state.RaceControlMessages?.Messages).slice(-30).reverse();
@@ -665,6 +827,9 @@ function renderInsights() {
   for (const b of document.querySelectorAll('#insTabs [data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
   if (tab === 'strategy') renderStrategy();
   else if (tab === 'trace') renderTrace();
+  else if (tab === 'pits') renderPits();
+  else if (tab === 'speeds') renderSpeeds();
+  else if (tab === 'h2h') renderH2H();
   else if (tab === 'standings') renderStandings();
   else renderResults();
 }
@@ -706,8 +871,8 @@ function traceBands(h) {
   return bands;
 }
 
-let traceScale = null;
-let traceData = null;
+// Lap-based charts on screen, for hover: id -> { scale, tip(lap) -> html }
+const chartReg = {};
 
 function renderTrace() {
   const tools = `<div class="chips">${[[5, 'Top 5'], [10, 'Top 10'], [0, 'All']].map(([v, l]) =>
@@ -739,26 +904,30 @@ function renderTrace() {
     return setBody(key, tools, `<div class="empty">The race trace builds up lap by lap while the page is open on the server. It starts from the first completed lap it sees.</div>`);
   }
   const { svg, scale } = raceTrace(series, { width, height, maxLap, bands: traceBands(h), endLabels: series.length <= 12 });
-  traceScale = scale;
-  traceData = { series, maxLap };
+  chartReg.trace = {
+    scale,
+    tip: (lap) => {
+      const rows = series.map((x) => ({ s: x, g: x.points.find((pt) => pt[0] === lap)?.[1] })).filter((r) => r.g != null).sort((a, b) => a.g - b.g);
+      return `<b>Lap ${lap}</b>${rows.length ? rows.slice(0, 12).map((r) => `<div class="tip-row"><span class="tip-sw${r.s.dashed ? ' dashed' : ''}" style="border-color:${esc(r.s.color)}"></span>${esc(r.s.tla)}<span>${r.g === 0 ? 'Leader' : `+${r.g.toFixed(1)}s`}</span></div>`).join('') : '<div class="muted">No data</div>'}`;
+    },
+  };
   const legend = `<div class="legend">${series.map((s) => `<button type="button" class="lg lg-btn${traceFocus === s.num ? ' on' : ''}" data-trace-focus="${esc(s.num)}"><span class="lg-line${s.dashed ? ' dashed' : ''}" style="border-color:${esc(s.color)}"></span>${esc(s.tla)}</button>`).join('')}</div>`;
   setBody(key, tools, `${legend}<div class="trace-wrap">${svg}</div><p class="hint chart-note">Gap to the leader at the end of each lap. Lapped cars drop off the chart. Shaded: safety car, VSC or red flag.</p>`);
 }
 
-function traceHover(ev) {
-  const svg = ev.target.closest('svg.trace');
-  if (!svg || !traceScale || !traceData) return hideTip();
+function chartHover(ev) {
+  const svg = ev.target.closest('svg[data-chart]');
+  const reg = svg && chartReg[svg.dataset.chart];
+  if (!reg) return hideTip();
   const rect = svg.getBoundingClientRect();
-  const px = ((ev.clientX - rect.left) / rect.width) * traceScale.W;
-  const { padL, padR, W, lapMax } = traceScale;
+  const { padL, padR, W, lapMax, x } = reg.scale;
+  const px = ((ev.clientX - rect.left) / rect.width) * W;
   const lap = Math.round(1 + ((px - padL) / (W - padL - padR)) * (lapMax - 1));
   if (lap < 1 || lap > lapMax) return hideTip();
-  const rows = traceData.series.map((s) => ({ s, g: s.points.find((p) => p[0] === lap)?.[1] })).filter((r) => r.g != null).sort((a, b) => a.g - b.g);
-  const cross = svg.querySelector('#rtCross');
-  const cx = traceScale.x(lap);
-  cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
-  if (!rows.length) return showTip(ev, `<b>Lap ${lap}</b><div class="muted">No data</div>`);
-  showTip(ev, `<b>Lap ${lap}</b>${rows.slice(0, 12).map((r) => `<div class="tip-row"><span class="tip-sw${r.s.dashed ? ' dashed' : ''}" style="border-color:${esc(r.s.color)}"></span>${esc(r.s.tla)}<span>${r.g === 0 ? 'Leader' : `+${r.g.toFixed(1)}s`}</span></div>`).join('')}`);
+  hideCross();
+  const cross = svg.querySelector('.rt-cross');
+  cross.setAttribute('x1', x(lap)); cross.setAttribute('x2', x(lap)); cross.setAttribute('visibility', 'visible');
+  showTip(ev, reg.tip(lap));
 }
 
 // Points for the running order, if this session counts.
@@ -939,6 +1108,182 @@ function renderResults() {
   setBody(key, tools, html);
 }
 
+// ---------- pit stops ----------
+const tyreChip = (c) => (c ? `<span class="tyre"><span class="t ${esc(c)}"><span>${COMPOUND_LETTER[c] || '?'}</span></span></span>` : '');
+
+function renderPits() {
+  const pits = shownHist().filter((e) => e.k === 'pit');
+  const app = state.TimingAppData?.Lines || {};
+  const fnum = favNum();
+  const key = `pits|${pits.length}|${fnum}|${JSON.stringify(Object.keys(app).map((n) => list(app[n]?.Stints).length))}`;
+  if (!pits.length) {
+    return setBody(key, '', `<div class="empty">${isRaceSession() ? 'No pit stops yet.' : 'Pit stops are logged during races and sprints.'}</div>`);
+  }
+  const count = {};
+  const rows = pits.map((p) => {
+    count[p.n] = (count[p.n] || 0) + 1;
+    // The stint that ended nearest this lap, and the one after it.
+    const ranges = stintRanges(app[p.n]?.Stints);
+    let i = -1, best = Infinity;
+    ranges.slice(0, -1).forEach((r, k) => { const d = Math.abs(r.to - p.lap); if (d < best) { best = d; i = k; } });
+    return { ...p, stop: count[p.n], from: ranges[i]?.compound, to: ranges[i + 1]?.compound, fresh: ranges[i + 1]?.fresh };
+  });
+  const fastest = Math.min(...rows.map((r) => r.dur).filter((d) => d > 0));
+  const html = `<div class="table-wrap"><table class="tbl">
+    <thead><tr><th class="num-c">Lap</th><th>Driver</th><th class="num-c">Stop</th><th>Tyres</th><th class="num-c">Pit lane</th></tr></thead>
+    <tbody>${rows.slice().reverse().map((r) => `<tr class="${r.n === fnum ? 'fav' : ''}">
+      <td class="num-c b">${r.lap}</td>
+      <td><span class="drv"><span class="bar" style="background:${colorOf(r.n)}"></span><span class="tla">${esc(tlaOf(r.n))}</span></span></td>
+      <td class="num-c muted">${r.stop}</td>
+      <td><span class="tyre-change">${tyreChip(r.from)}${r.to ? `<span class="arrow">→</span>${tyreChip(r.to)}${r.fresh === false ? '<span class="used">used</span>' : ''}` : ''}</span></td>
+      <td class="num-c b${r.dur === fastest ? ' t-ob' : ''}">${r.dur ? `${r.dur.toFixed(1)} s` : ''}</td>
+    </tr>`).join('')}</tbody></table></div>
+    <p class="hint chart-note">Pit lane: time from pit entry to pit exit; the quickest is purple. Newest first.</p>`;
+  setBody(key, '', html);
+}
+
+// ---------- speed traps ----------
+const TRAPS = [['I1', 'I1'], ['I2', 'I2'], ['FL', 'Finish'], ['ST', 'Trap']];
+let speedSort = store.get('speedSort', 'ST');
+
+function renderSpeeds() {
+  const best = {};
+  for (const e of shownHist()) if (e.k === 'spd') { const b = (best[e.n] ||= {}); b[e.trap] = Math.max(b[e.trap] || 0, e.v); }
+  const nums = Object.keys(best).filter((n) => DL()[n]);
+  const fnum = favNum();
+  const key = `spd|${JSON.stringify(best)}|${speedSort}|${fnum}`;
+  if (!nums.length) return setBody(key, '', '<div class="empty">Speed-trap readings appear once cars are running.</div>');
+  const top = {};
+  for (const [t] of TRAPS) top[t] = Math.max(0, ...nums.map((n) => best[n][t] || 0));
+  nums.sort((a, b) => (best[b][speedSort] || 0) - (best[a][speedSort] || 0));
+  const html = `<div class="table-wrap"><table class="tbl">
+    <thead><tr><th class="num-c">#</th><th>Driver</th>${TRAPS.map(([t, l]) => `<th class="num-c"><button type="button" class="th-sort${speedSort === t ? ' on' : ''}" data-speed-sort="${t}">${l}${speedSort === t ? ' ▾' : ''}</button></th>`).join('')}</tr></thead>
+    <tbody>${nums.map((n, i) => `<tr class="${n === fnum ? 'fav' : ''}">
+      <td class="num-c muted">${i + 1}</td>
+      <td><span class="drv"><span class="bar" style="background:${colorOf(n)}"></span><span class="tla">${esc(tlaOf(n))}</span></span></td>
+      ${TRAPS.map(([t]) => { const v = best[n][t]; return `<td class="num-c${v && v === top[t] ? ' t-ob b' : ''}${t === speedSort ? ' b' : ''}">${v || ''}</td>`; }).join('')}
+    </tr>`).join('')}</tbody></table></div>
+    <p class="hint chart-note">Best speed this session in km/h. I1 and I2 are the intermediate timing points, Finish is the finish line and Trap is the speed trap. Fastest at each point in purple. Tap a column to sort.</p>`;
+  setBody(key, '', html);
+}
+
+// ---------- head-to-head ----------
+function h2hPair() {
+  const order = runningOrder();
+  const has = (tla) => tla && numOfTla(tla) && order.some(([n]) => n === numOfTla(tla));
+  let a = has(h2h.a) ? numOfTla(h2h.a) : favNum() && has(fav) ? favNum() : order[0]?.[0];
+  let b = has(h2h.b) ? numOfTla(h2h.b) : null;
+  if (!b || b === a) {
+    const i = order.findIndex(([n]) => n === a);
+    b = (order[i - 1] || order[i + 1])?.[0] || null;
+  }
+  return [a, b];
+}
+
+function renderH2H() {
+  const order = runningOrder();
+  if (order.length < 2) return setBody('h2h|none', '', '<div class="empty">Head-to-head works once a session has data.</div>');
+  const [a, b] = h2hPair();
+  const q = qInfo();
+  const race = isRaceSession();
+  const laps = shownHist().filter((e) => e.k === 'lap' && (e.n === a || e.n === b));
+  const width = $('insBody').clientWidth - 8;
+  const lines = state.TimingData?.Lines || {};
+  const la = lines[a] || {}, lb = lines[b] || {};
+  const key = `h2h|${a}|${b}|${laps.length}|${width}|${JSON.stringify([la.Position, lb.Position, la.GapToLeader, lb.GapToLeader, la.LastLapTime?.Value, lb.LastLapTime?.Value, q?.part])}`;
+  if (key === insKey) return;
+  const opts = (sel) => order.map(([n, l]) => `<option value="${esc(tlaOf(n))}"${n === sel ? ' selected' : ''}>P${esc(l.Position || '')} ${esc(tlaOf(n))}</option>`).join('');
+  const tools = `<div class="h2h-pick"><select class="sel" data-h2h="a" aria-label="First driver">${opts(a)}</select><span class="muted">vs</span><select class="sel" data-h2h="b" aria-label="Second driver">${opts(b)}</select></div>`;
+
+  const sameTeam = DL()[a]?.TeamName && DL()[a]?.TeamName === DL()[b]?.TeamName;
+  const colA = colorOf(a), colB = colorOf(b);
+  const byLap = (n) => {
+    const m = {};
+    for (const e of laps) if (e.n === n) m[e.lap] = e;
+    return m;
+  };
+  const LA = byLap(a), LB = byLap(b);
+  // Lap times per lap; a repeat of the previous lap's time means no new time was set (out/in laps).
+  const times = (m) => Object.values(m).sort((x, y) => x.lap - y.lap)
+    .filter((e, i, arr) => e.time && (i === 0 || e.time !== arr[i - 1].time))
+    .map((e) => [e.lap, parseLap(e.time)]).filter(([, t]) => t != null);
+  const ta = times(LA), tb = times(LB);
+  // Representative laps: within 7% of the median, so pit, safety-car and odd timing laps
+  // (one bad value can't distort the scale) are left out.
+  const clean = (arr) => {
+    if (!arr.length) return arr;
+    const sorted = arr.map(([, t]) => t).sort((x, y) => x - y);
+    const med = sorted[Math.floor(sorted.length / 2)];
+    return arr.filter(([, t]) => t <= med * 1.07 && t >= med * 0.93);
+  };
+  const avg5 = (arr) => { const c = clean(arr).slice(-5); return c.length ? c.reduce((s2, [, t]) => s2 + t, 0) / c.length : null; };
+  const fmt = (t) => (t == null ? '–' : `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}`);
+  const stint = (n) => list(state.TimingAppData?.Lines?.[n]?.Stints).pop();
+  const tyre = (n) => { const st = stint(n); const c = (st?.Compound || '').toUpperCase(); return st ? `${tyreChip(c)} <span class="muted">${esc(st.TotalLaps ?? '')} laps</span>` : '–'; };
+
+  // Gap between them now: positive = A ahead.
+  let gapNow = null, gapLabel = '';
+  if (race) {
+    const ga = gapSec(la), gb = gapSec(lb);
+    if (ga != null && gb != null) gapNow = gb - ga;
+    gapLabel = 'Gap on track';
+  } else {
+    const pa = parseLap(q ? partBest(la, q.part) : la.BestLapTime?.Value), pb = parseLap(q ? partBest(lb, q.part) : lb.BestLapTime?.Value);
+    if (pa != null && pb != null) gapNow = pb - pa;
+    gapLabel = q ? `Best in ${q.label}` : 'Best lap';
+  }
+  const ahead = gapNow == null ? '' : gapNow >= 0 ? tlaOf(a) : tlaOf(b);
+  const headline = gapNow == null
+    ? `<span class="muted">${gapLabel}: no comparison yet</span>`
+    : `<b>${esc(ahead)}</b> ${race ? 'ahead by' : 'faster by'} <b>${Math.abs(gapNow).toFixed(race ? 1 : 3)} s</b> <span class="muted">· ${esc(gapLabel)}</span>`;
+
+  const rowsH = [
+    ['Position', `P${esc(la.Position || '–')}`, `P${esc(lb.Position || '–')}`],
+    q ? [`Best in ${q.label}`, fmt(parseLap(partBest(la, q.part))), fmt(parseLap(partBest(lb, q.part)))]
+      : ['Best lap', fmt(parseLap(la.BestLapTime?.Value || lastWith(la.BestLapTimes, 'Value'))), fmt(parseLap(lb.BestLapTime?.Value || lastWith(lb.BestLapTimes, 'Value')))],
+    ['Last lap', esc(la.LastLapTime?.Value || '–'), esc(lb.LastLapTime?.Value || '–')],
+    ['Avg last 5', fmt(avg5(ta)), fmt(avg5(tb))],
+    ['Tyre', tyre(a), tyre(b)],
+    ...(race ? [['Pit stops', esc(la.NumberOfPitStops ?? 0), esc(lb.NumberOfPitStops ?? 0)]] : []),
+  ];
+  const head = (n) => `<span class="drv"><span class="bar" style="background:${colorOf(n)}"></span><span class="tla">${esc(tlaOf(n))}</span><span class="team">${esc(DL()[n]?.TeamName || '')}</span></span>`;
+  const statTable = `<table class="tbl h2h-tbl"><thead><tr><th></th><th>${head(a)}</th><th>${head(b)}</th></tr></thead>
+    <tbody>${rowsH.map(([k, x, y]) => `<tr><td class="muted">${k}</td><td>${x}</td><td>${y}</td></tr>`).join('')}</tbody></table>`;
+
+  // Lap times chart (clean laps set the scale; slow laps sit on the top edge).
+  const all = [...ta, ...tb];
+  let charts = '';
+  if (all.length) {
+    const cl = clean(all).length ? clean(all) : all;
+    const yMin = Math.min(...cl.map(([, t]) => t)) - 0.2;
+    const yMax = Math.max(...cl.map(([, t]) => t)) + 0.2;
+    const maxLap = Math.max(...all.map(([l]) => l), race ? Number(state.LapCount?.TotalLaps) || 0 : 0);
+    const series = [
+      { label: tlaOf(a), color: colA, dashed: false, points: ta },
+      { label: tlaOf(b), color: colB, dashed: sameTeam, points: tb },
+    ];
+    const lt = lapChart(series, { id: 'h2hTimes', width, height: width < 520 ? 190 : 230, maxLap, yMin, yMax, yFmt: (v) => `${Math.floor(v / 60)}:${(v % 60).toFixed(1).padStart(4, '0')}`, label: 'Lap times' });
+    chartReg.h2hTimes = { scale: lt.scale, tip: (lap) => `<b>Lap ${lap}</b>${series.map((x) => { const t = x.points.find((p) => p[0] === lap)?.[1]; return `<div class="tip-row"><span class="tip-sw${x.dashed ? ' dashed' : ''}" style="border-color:${esc(x.color)}"></span>${esc(x.label)}<span>${fmt(t)}</span></div>`; }).join('')}` };
+    const legend = `<div class="legend">${series.map((x) => `<span class="lg"><span class="lg-line${x.dashed ? ' dashed' : ''}" style="border-color:${esc(x.color)}"></span>${esc(x.label)}</span>`).join('')}</div>`;
+    charts += `<h3 class="sub-h">Lap times</h3>${legend}<div class="trace-wrap">${lt.svg}</div><p class="hint chart-note">Lower is faster. Open circles on the edges are laps far off the usual pace (pit stops, safety car, out-laps).</p>`;
+
+    if (race) {
+      const gaps = Object.keys(LA).map(Number).filter((l) => LB[l] && LA[l].gap != null && LB[l].gap != null)
+        .sort((x, y) => x - y).map((l) => [l, LB[l].gap - LA[l].gap]);
+      if (gaps.length) {
+        const vals = gaps.map(([, g]) => g);
+        const m = Math.max(1, ...vals.map(Math.abs));
+        const gc = lapChart([{ label: 'Gap', color: 'var(--text)', points: gaps }], { id: 'h2hGap', width, height: width < 520 ? 160 : 190, maxLap, yMin: Math.min(0, ...vals) - 0.3, yMax: Math.max(0, ...vals) + 0.3, yFmt: (v) => (Math.abs(v) < 1e-9 ? '0' : `${v > 0 ? '+' : '−'}${Math.abs(v).toFixed(m < 5 ? 1 : 0)}`), zero: true, label: 'Gap between the two drivers' });
+        chartReg.h2hGap = { scale: gc.scale, tip: (lap) => { const g = gaps.find((p) => p[0] === lap)?.[1]; return `<b>Lap ${lap}</b><div>${g == null ? '<span class="muted">No data</span>' : `${esc(g >= 0 ? tlaOf(a) : tlaOf(b))} ahead by ${Math.abs(g).toFixed(1)} s`}</div>`; } };
+        charts += `<h3 class="sub-h">Gap between them <span class="muted">· above 0: ${esc(tlaOf(a))} ahead, below: ${esc(tlaOf(b))} ahead</span></h3><div class="trace-wrap">${gc.svg}</div>`;
+      }
+    }
+  } else {
+    charts = '<p class="hint chart-note">Charts fill in lap by lap while the page is open on the server.</p>';
+  }
+  setBody(key, tools, `<div class="h2h-head">${headline}</div>${statTable}${charts}`);
+}
+
 // ---------- tooltip ----------
 const tip = $('tip');
 function showTip(ev, html) {
@@ -951,19 +1296,21 @@ function showTip(ev, html) {
   tip.style.left = `${Math.max(8, x)}px`;
   tip.style.top = `${y}px`;
 }
+function hideCross() {
+  for (const c of document.querySelectorAll('.rt-cross')) c.setAttribute('visibility', 'hidden');
+}
 function hideTip() {
   tip.hidden = true;
-  const cross = document.getElementById('rtCross');
-  if (cross) cross.setAttribute('visibility', 'hidden');
+  hideCross();
 }
 $('insBody').addEventListener('pointermove', (ev) => {
   const st = ev.target.closest('[data-tip]');
   if (st) return showTip(ev, esc(st.dataset.tip));
-  if (ev.target.closest('svg.trace')) return traceHover(ev);
+  if (ev.target.closest('svg[data-chart]')) return chartHover(ev);
   hideTip();
 });
 $('insBody').addEventListener('pointerleave', hideTip);
-$('insBody').addEventListener('pointerdown', (ev) => { if (ev.pointerType !== 'mouse') ev.target.closest('svg.trace') ? traceHover(ev) : null; });
+$('insBody').addEventListener('pointerdown', (ev) => { if (ev.pointerType !== 'mouse' && ev.target.closest('svg[data-chart]')) chartHover(ev); });
 
 // ---------- settings ----------
 function openSettings() {
@@ -979,8 +1326,14 @@ function openSettings() {
   const base = `${location.host}${location.pathname.replace(/[^/]*$/, '')}calendar.ics`;
   const links = [['All sessions', ''], ['Race, qualifying and sprint only', '?main=1'], ['All sessions, alert 15 min before', '?alarm=15']];
   $('calLinks').innerHTML = links.map(([l, q]) => `<div class="cal-row"><a href="webcal://${esc(base + q)}">${esc(l)}</a><button type="button" class="btn sm" data-copy="${esc(`${location.protocol}//${base}${q}`)}">Copy link</button></div>`).join('');
+  $('pitLoss').value = pitLossManual || 9.5;
+  showPitLoss();
   renderSettings();
   $('settings').showModal();
+}
+function showPitLoss() {
+  const p = pitLoss();
+  $('pitLossVal').textContent = pitLossManual ? `${p.secs} s` : `Auto · ${p.secs} s`;
 }
 
 function renderSettings() {
@@ -1008,6 +1361,13 @@ function renderSettings() {
 }
 
 $('settingsBtn').addEventListener('click', openSettings);
+$('pitLoss').addEventListener('input', (e) => {
+  pitLossManual = Number(e.target.value) < 10 ? 0 : Number(e.target.value); // below 10 s means automatic
+  store.set('pitLoss', pitLossManual);
+  showPitLoss();
+  ghostKey = '';
+  dirty = true;
+});
 $('favSelect').addEventListener('change', (e) => {
   fav = e.target.value;
   store.set('fav', fav);
@@ -1045,8 +1405,9 @@ document.querySelectorAll('#insTabs [data-tab]').forEach((b) => b.addEventListen
   insTab = b.dataset.tab; store.set('insTab', insTab); insKey = ''; hideTip(); dirty = true;
 }));
 $('insCard').addEventListener('click', (e) => {
-  const t = e.target.closest('[data-trace-filter],[data-trace-focus],[data-stand],[data-res-kind]');
+  const t = e.target.closest('[data-trace-filter],[data-trace-focus],[data-stand],[data-res-kind],[data-speed-sort]');
   if (!t) return;
+  if (t.dataset.speedSort) { speedSort = t.dataset.speedSort; store.set('speedSort', speedSort); }
   if (t.dataset.traceFilter != null) { traceFilter = Number(t.dataset.traceFilter); store.set('traceFilter', traceFilter); }
   if (t.dataset.traceFocus != null) traceFocus = traceFocus === t.dataset.traceFocus ? null : t.dataset.traceFocus;
   if (t.dataset.stand) { standTab = t.dataset.stand; store.set('standTab', standTab); }
@@ -1055,6 +1416,13 @@ $('insCard').addEventListener('click', (e) => {
   dirty = true;
 });
 $('insCard').addEventListener('change', (e) => {
+  if (e.target.dataset.h2h) {
+    h2h = { ...h2h, [e.target.dataset.h2h]: e.target.value };
+    if (e.target.dataset.h2h === 'a' && h2h.b === h2h.a) h2h.b = '';
+    store.set('h2h', h2h);
+    insKey = ''; dirty = true;
+    return;
+  }
   if (e.target.id !== 'resRound') return;
   resSel = { ...resSel, round: Number(e.target.value) };
   store.set('resSel', resSel);

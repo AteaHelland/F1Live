@@ -44,6 +44,7 @@
           <button id="gapToggle" class="seg" title="Switch between gap to leader and interval">Interval</button>
         </div>
         <div id="favBar" class="fav-bar" hidden></div>
+        <div id="qBar" class="q-bar" hidden></div>
         <div class="tower-wrap">
           <table class="tower" id="tower">
             <thead>
@@ -58,7 +59,8 @@
                 <th class="c-sec">S2</th>
                 <th class="c-sec">S3</th>
                 <th class="c-tyre">Tyre</th>
-                <th class="c-pit">Pit</th>
+                <th class="c-ghost" id="ghostHead">If pit</th>
+              <th class="c-pit">Pit</th>
               </tr>
             </thead>
             <tbody></tbody>
@@ -71,6 +73,9 @@
           <div class="tabs" role="tablist" aria-label="Insights" id="insTabs">
             <button type="button" role="tab" data-tab="strategy">Strategy</button>
             <button type="button" role="tab" data-tab="trace">Race trace</button>
+          <button type="button" role="tab" data-tab="pits">Pit stops</button>
+          <button type="button" role="tab" data-tab="speeds">Speeds</button>
+          <button type="button" role="tab" data-tab="h2h">Head-to-head</button>
             <button type="button" role="tab" data-tab="standings">Standings</button>
             <button type="button" role="tab" data-tab="results">Results</button>
           </div>
@@ -130,6 +135,12 @@
         <span class="field-label">Favourite driver</span>
         <select id="favSelect" class="sel wide"></select>
         <span class="hint">Highlighted in the timing tower, on the map, in the charts and standings, with the gaps around them shown above the timing tower. Their telemetry is shown by default.</span>
+      </label>
+
+      <label class="field">
+        <span class="field-label">Pit loss <b id="pitLossVal"></b></span>
+        <input type="range" id="pitLoss" min="9.5" max="35" step="0.5" value="9.5">
+        <span class="hint">Time a pit stop costs under green flags, used for the "If pit" column and the ghost on the map. All the way left = automatic (a typical value for each circuit). It's cut to about 55% under a safety car and 65% under a VSC.</span>
       </label>
 
       <div class="field">

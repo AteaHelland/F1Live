@@ -30,6 +30,15 @@ second screen next to the broadcast.
   the timing tower to switch
 - Live championship standings during races and sprints, with points for the current order
 - A favourite driver, highlighted everywhere, with the gaps ahead and behind (⚙ settings)
+- Qualifying mode: which part is running (Q1/Q2/Q3, or SQ for sprint qualifying), the
+  elimination line and drop zone in the timing tower, the cut-off time, and how much your
+  favourite needs to find (or has in hand)
+- Pit window: where each driver would rejoin if they pitted now ("If pit" column), with a
+  ghost marker on the map for your favourite. The pit loss is a typical value per circuit,
+  reduced under a safety car or VSC, and can be set by hand in ⚙ settings
+- Pit stop log: every stop with lap, tyre change and time in the pit lane
+- Speed traps: each driver's best speed at the intermediate points, finish line and speed trap
+- Head-to-head: any two drivers side by side, with lap times and the gap between them lap by lap
 - A broadcast-delay slider so the page matches your stream (TV and streaming usually run
   20–45 seconds behind the live data)
 
@@ -119,7 +128,8 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `BUFFER_SECONDS` | `150` | How much recent data the server keeps, which caps the broadcast delay |
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, last session and token are kept |
-| `DEMO_SPEED` | `1` | In demo mode, runs the simulated race faster (e.g. `8`) to fill the charts quickly |
+| `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
+| `DEMO_SESSION` | `race` | In demo mode, `quali` plays a qualifying session instead of a race |
 | `JOLPICA_URL` | `https://api.jolpi.ca/ergast/f1` | Calendar, standings and results API (change only for testing) |
 
 ## Updating
