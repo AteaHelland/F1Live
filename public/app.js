@@ -196,7 +196,9 @@ function addTelemetry(data) {
       let buf = teleBuf.get(num);
       if (!buf) teleBuf.set(num, (buf = []));
       if (buf.length && t <= buf[buf.length - 1].t) continue;
-      buf.push({ t, rpm: c[0], v: c[1], gear: c[2], thr: c[3], brk: c[4] });
+      // With the engine off (garage) the throttle and brake channels carry junk; zero them.
+      const off = c[0] < 500 && c[1] < 1;
+      buf.push({ t, rpm: c[0], v: c[1], gear: c[2], thr: off ? 0 : Math.min(100, c[3]), brk: off ? 0 : c[4], off });
       while (buf.length && t - buf[0].t > 40000) buf.shift();
     }
   }
@@ -800,11 +802,15 @@ function renderTele() {
     return;
   }
   const rpmPct = Math.max(0, Math.min(100, ((s.rpm - 4000) / 9000) * 100));
+  const line = state.TimingData?.Lines?.[num] || {};
+  const parked = s.off || (line.InPit && s.v < 1);
+  const where = line.InPit || s.off ? 'In the garage' : 'Stopped';
   el.innerHTML = `
     <div class="tele-top">
       <div class="tele-big"><span class="tele-speed">${speedVal(s.v)}</span><span class="tele-unit">${speedUnit()}</span></div>
       <div class="tele-gear"><span class="tele-k">Gear</span><b>${s.gear || 'N'}</b></div>
-      <div class="tele-bars">
+      ${parked ? `<div class="tele-parked">${where}<span class="muted">${s.off ? ' · engine off' : ''}</span></div>` : ''}
+      <div class="tele-bars"${parked ? ' hidden' : ''}>
         <div class="tb"><span class="tele-k">RPM</span><span class="tb-track"><span class="tb-fill rpm" style="width:${rpmPct}%"></span></span><span class="tb-v">${s.rpm.toLocaleString('en-GB')}</span></div>
         <div class="tb"><span class="tele-k">Throttle</span><span class="tb-track"><span class="tb-fill thr" style="width:${Math.min(100, s.thr)}%"></span></span><span class="tb-v">${s.thr}%</span></div>
         <div class="tb"><span class="tele-k">Brake</span><span class="tb-track"><span class="tb-fill brk" style="width:${s.brk > 0 ? 100 : 0}%"></span></span><span class="tb-v">${s.brk > 0 ? 'On' : 'Off'}</span></div>
