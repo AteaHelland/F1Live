@@ -11,6 +11,9 @@ second screen next to the broadcast.
 
 **Between race weekends**
 - The next race weekend with every session in your local time, plus a countdown
+- Championship standings for drivers and teams
+- Results of every race, sprint and qualifying this season
+- A calendar feed (`/calendar.ics`) to subscribe to from your phone or computer
 
 **During a session**
 - Track status (green, yellow, safety car, VSC, red), shown as a colour bar across the top
@@ -19,17 +22,28 @@ second screen next to the broadcast.
 - Tyre compound, tyre age and pit stops
 - Race control messages
 - A track map with live car positions in team colours, with yellow-flagged sectors highlighted
+- Weather: air and track temperature (with trend), humidity, wind and rain
+- Tyre strategy chart: every driver's stints by compound and length
+- Race trace: each driver's gap to the leader lap by lap, with safety car periods shaded
+- Team radio clips you can play on the page
+- Telemetry for one driver: speed, gear, RPM, throttle and brake (F1 TV only); tap a driver in
+  the timing tower to switch
+- Live championship standings during races and sprints, with points for the current order
+- A favourite driver, highlighted everywhere, with the gaps ahead and behind (⚙ settings)
 - A broadcast-delay slider so the page matches your stream (TV and streaming usually run
   20–45 seconds behind the live data)
 
 The dashboard only connects to F1's feed from 45 minutes before a session until about 90
 minutes after it. It keeps the last session's data, so you can look at results afterwards.
 
+The race trace is built by the server as laps are completed, so it starts from the first lap
+the server sees. If the container restarts mid-race, the laps it missed stay empty.
+
 ## Requirements
 
 - A machine running Docker with the Compose plugin
-- Optional: an F1 TV subscription, for car positions on the track map (F1 only sends those to
-  subscribers; everything else works without it)
+- Optional: an F1 TV subscription, for car positions on the track map and telemetry (F1 only
+  sends those to subscribers; everything else works without it)
 - Optional: a local DNS name and a reverse proxy for HTTPS
 
 ## Install
@@ -62,7 +76,22 @@ reverse proxy in front. With Caddy:
 Any reverse proxy works. Make sure it doesn't buffer `/api/stream`, which is a live
 server-sent events stream.
 
-## F1 TV token (car positions)
+## Calendar feed
+
+Every session of the season is available as an iCalendar feed:
+
+| Link | What you get |
+| --- | --- |
+| `/calendar.ics` | All sessions |
+| `/calendar.ics?main=1` | Race, qualifying and sprint only |
+| `/calendar.ics?alarm=15` | All sessions, with an alert 15 minutes before (any number up to 240) |
+
+⚙ settings has ready-made subscribe links. Add the subscription on each device ("On My
+iPhone" or "On My Mac") rather than to iCloud: subscriptions in iCloud are fetched by Apple's
+servers, which can't reach a server on your home network. With HTTPS from a local CA, the
+device has to trust that CA first.
+
+## F1 TV token (car positions and telemetry)
 
 There are two ways to give the dashboard your token:
 
@@ -90,6 +119,8 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `BUFFER_SECONDS` | `150` | How much recent data the server keeps, which caps the broadcast delay |
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, last session and token are kept |
+| `DEMO_SPEED` | `1` | In demo mode, runs the simulated race faster (e.g. `8`) to fill the charts quickly |
+| `JOLPICA_URL` | `https://api.jolpi.ca/ergast/f1` | Calendar, standings and results API (change only for testing) |
 
 ## Updating
 
@@ -108,7 +139,8 @@ reload the page in your browser.
 ## Data sources
 
 - Live timing: livetiming.formula1.com (unofficial)
-- Race calendar: api.jolpi.ca (Ergast-compatible)
+- Race calendar, standings and results: api.jolpi.ca (Ergast-compatible)
+- Team radio clips: played straight from livetiming.formula1.com
 - Track outlines: MultiViewer's public circuit API
 
 ## Keep secrets out of git

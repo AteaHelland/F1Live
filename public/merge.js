@@ -32,7 +32,7 @@ export function deepMerge(target, source) {
 export function applyItem(state, item) {
   if (item.kind === 'snap') return clone(item.data);
   const { topic, data } = item;
-  if (topic === 'Position' || topic === 'Heartbeat') {
+  if (topic === 'Position' || topic === 'Heartbeat' || topic === 'CarData') {
     state[topic] = clone(data); // latest sample only
   } else {
     state[topic] = deepMerge(state[topic], data);
@@ -48,4 +48,23 @@ export function list(x) {
     .sort((a, b) => Number(a) - Number(b))
     .map((k) => x[k])
     .filter((v) => v != null);
+}
+
+// Identifies one session, so per-session history can be told apart from the last one.
+export function sessionKey(state) {
+  const si = state && state.SessionInfo;
+  if (!si || !si.Name) return null;
+  return `${si.Path || si.Meeting?.Name || ''}|${si.Name}|${si.StartDate || ''}`;
+}
+
+// Race-lap ranges of each tyre stint. TotalLaps counts laps on the set including any it
+// had before (StartLaps), so the laps run in this stint are TotalLaps − StartLaps.
+export function stintRanges(stints) {
+  let at = 0;
+  return list(stints).map((s) => {
+    const laps = Math.max(0, (Number(s.TotalLaps) || 0) - (Number(s.StartLaps) || 0));
+    const r = { compound: String(s.Compound || 'UNKNOWN').toUpperCase(), fresh: s.New !== 'false', from: at, to: at + laps };
+    at += laps;
+    return r;
+  });
 }

@@ -8,6 +8,7 @@
   "scripts": {
     "start": "node server.js",
     "demo": "DEMO=1 node server.js",
-    "fake-hub": "node test/fake-hub.js"
+    "fake-hub": "node test/fake-hub.js",
+    "fake-jolpica": "node test/fake-jolpica.js"
   }
 }

@@ -6,9 +6,12 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { LiveTimingClient } from './lib/livetiming.js';
 import { Schedule, inLiveWindow } from './lib/schedule.js';
-import { DemoClient, demoCircuit, demoSchedule } from './lib/demo.js';
+import { DemoClient, demoCircuit, demoSchedule, demoStandings, demoRadioWav } from './lib/demo.js';
 import { applyItem, clone } from './public/merge.js';
 import { extractToken } from './lib/token.js';
+import { History } from './lib/history.js';
+import { Jolpica } from './lib/jolpica.js';
+import { buildIcs } from './lib/ics.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -18,6 +21,7 @@ const DEMO = process.env.DEMO === '1';
 const LIVE_ALWAYS = process.env.LIVE_ALWAYS === '1';
 const BUFFER_MS = Number(process.env.BUFFER_SECONDS || 150) * 1000;
 const LIVETIMING_URL = process.env.LIVETIMING_URL || 'https://livetiming.formula1.com/signalrcore';
+const JOLPICA_URL = process.env.JOLPICA_URL || 'https://api.jolpi.ca/ergast/f1';
 
 await fs.mkdir(path.join(DATA, 'circuits'), { recursive: true });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -58,6 +62,12 @@ try {
   latest = clone(base);
 } catch {}
 
+// Lap-by-lap gaps, weather and track status for the current session (race trace etc.).
+const HISTORY_FILE = path.join(DATA, 'last-history.json');
+let saved = null;
+try { saved = JSON.parse(await fs.readFile(HISTORY_FILE, 'utf8')); } catch {}
+const history = new History(saved);
+
 const clients = new Set();
 function broadcast(event, data) {
   const msg = `${event ? `event: ${event}\n` : ''}data: ${JSON.stringify(data)}\n\n`;
@@ -69,6 +79,7 @@ function push(item) {
   latest = applyItem(latest, item);
   dirty = true;
   broadcast(null, item);
+  for (const e of history.observe(item, latest)) broadcast('hist', e);
 }
 
 function prune() {
@@ -79,7 +90,10 @@ setInterval(prune, 5000);
 setInterval(async () => {
   if (!dirty) return;
   dirty = false;
-  try { await fs.writeFile(LAST_FILE, JSON.stringify(latest)); } catch (e) { log('save failed', e.message); }
+  try {
+    await fs.writeFile(LAST_FILE, JSON.stringify(latest));
+    await fs.writeFile(HISTORY_FILE, JSON.stringify(history));
+  } catch (e) { log('save failed', e.message); }
 }, 60000);
 
 // ---------- live timing connection ----------
@@ -105,7 +119,8 @@ async function tick() {
     broadcast('status', statusView());
   }
 }
-if (!DEMO) await schedule.load();
+await schedule.load(); // demo mode still uses the real calendar for the .ics feed
+const jolpica = new Jolpica({ dataDir: DATA, base: JOLPICA_URL });
 await tick();
 setInterval(tick, 60000);
 
@@ -156,6 +171,40 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/status') return json(res, 200, statusView());
     if (url.pathname === '/api/schedule') return json(res, 200, DEMO ? demoSchedule() : schedule.view());
     if (url.pathname === '/api/state') return json(res, 200, latest);
+    if (url.pathname === '/api/standings') {
+      if (DEMO) return json(res, 200, demoStandings());
+      try { return json(res, 200, await jolpica.standings()); }
+      catch (e) { return json(res, 502, { error: e.message }); }
+    }
+    if (url.pathname === '/api/season') {
+      const year = url.searchParams.get('year') || String(new Date().getUTCFullYear());
+      if (!/^\d{4}$/.test(year)) return json(res, 400, { error: 'bad year' });
+      try { return json(res, 200, await jolpica.season(year)); }
+      catch (e) { return json(res, 502, { error: e.message }); }
+    }
+    if (url.pathname === '/api/results') {
+      const year = url.searchParams.get('year') || '', round = url.searchParams.get('round') || '';
+      if (!/^\d{4}$/.test(year) || !/^\d{1,2}$/.test(round)) return json(res, 400, { error: 'bad year/round' });
+      try { return json(res, 200, await jolpica.results(year, round, url.searchParams.get('kind') || 'race')); }
+      catch (e) { return json(res, 502, { error: e.message }); }
+    }
+    if (url.pathname === '/calendar.ics') {
+      await schedule.refresh();
+      const host = req.headers['x-forwarded-host'] || req.headers.host;
+      const proto = req.headers['x-forwarded-proto'] || (host && !/:\d+$/.test(host) ? 'https' : 'http');
+      const body = buildIcs(schedule.races, {
+        main: url.searchParams.get('main') === '1',
+        alarm: Math.min(240, Math.max(0, Number(url.searchParams.get('alarm')) || 0)),
+        url: host ? `${proto}://${host}/` : '',
+      });
+      res.writeHead(200, { 'Content-Type': 'text/calendar; charset=utf-8', 'Cache-Control': 'no-cache', 'Content-Disposition': 'inline; filename="f1.ics"' });
+      return res.end(body);
+    }
+    if (url.pathname === '/api/demo-radio.wav') {
+      const wav = demoRadioWav();
+      res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length, 'Cache-Control': 'max-age=3600' });
+      return res.end(wav);
+    }
     if (url.pathname === '/api/circuit') {
       try { return json(res, 200, await circuit(url.searchParams.get('key') || '', url.searchParams.get('year') || '')); }
       catch (e) { return json(res, 404, { error: e.message }); }
@@ -184,7 +233,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (url.pathname === '/api/stream') {
       res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
-      res.write(`retry: 3000\nevent: init\ndata: ${JSON.stringify({ serverNow: Date.now(), base, items, status: statusView() })}\n\n`);
+      res.write(`retry: 3000\nevent: init\ndata: ${JSON.stringify({ serverNow: Date.now(), base, items, history: history.entries, status: statusView() })}\n\n`);
       clients.add(res);
       const ka = setInterval(() => res.write(`: ka ${Date.now()}\n\n`), 15000);
       req.on('close', () => { clearInterval(ka); clients.delete(res); });
@@ -207,7 +256,10 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => log(`f1 dashboard on :${PORT}${DEMO ? ' (demo mode)' : ''}; token ${token ? 'present' : 'not set'}`));
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
-    try { await fs.writeFile(LAST_FILE, JSON.stringify(latest)); } catch {}
+    try {
+      await fs.writeFile(LAST_FILE, JSON.stringify(latest));
+      await fs.writeFile(HISTORY_FILE, JSON.stringify(history));
+    } catch {}
     process.exit(0);
   });
 }

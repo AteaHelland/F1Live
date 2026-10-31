@@ -16,15 +16,18 @@
 <body>
   <div id="flagbar" class="flagbar" data-status="none"></div>
   <header class="top">
-    <div class="brand"><span class="mark"></span><span>F1</span><span class="brand-sub">LIVE</span></div>
-    <div class="session">
-      <div class="session-title" id="sessionTitle">—</div>
-      <div class="session-meta">
-        <span id="trackPill" class="pill" data-status="none">No session</span>
-        <span id="lapInfo" class="meta-item"></span>
-        <span id="clockInfo" class="meta-item"></span>
+    <div class="top-left">
+      <div class="brand"><span class="mark"></span><span>F1</span><span class="brand-sub">LIVE</span></div>
+      <div class="session">
+        <div class="session-title" id="sessionTitle">—</div>
+        <div class="session-meta">
+          <span id="trackPill" class="pill" data-status="none">No session</span>
+          <span id="lapInfo" class="meta-item"></span>
+          <span id="clockInfo" class="meta-item"></span>
+        </div>
       </div>
     </div>
+    <div class="top-mid" id="nextInfo" aria-live="polite"></div>
     <div class="top-right">
       <span id="liveChip" class="chip">Offline</span>
       <button id="settingsBtn" class="icon-btn" aria-label="Settings">
@@ -34,52 +37,84 @@
   </header>
 
   <main class="grid">
-    <section class="card weekend" id="weekendCard">
-      <div class="card-head"><h2>Next race weekend</h2><span id="tzLabel" class="muted small"></span></div>
-      <div id="weekend" class="weekend-body"><div class="empty">Loading calendar…</div></div>
-    </section>
-
-    <section class="card tower-card" id="towerCard">
-      <div class="card-head">
-        <h2 id="towerTitle">Timing</h2>
-        <button id="gapToggle" class="seg" title="Switch between gap to leader and interval">Interval</button>
-      </div>
-      <div class="tower-wrap">
-        <table class="tower" id="tower">
-          <thead>
-            <tr>
-              <th class="c-pos">P</th>
-              <th class="c-drv">Driver</th>
-              <th class="c-gap">Gap</th>
-              <th class="c-int">Int</th>
-              <th class="c-last">Last</th>
-              <th class="c-best">Best</th>
-              <th class="c-sec">S1</th>
-              <th class="c-sec">S2</th>
-              <th class="c-sec">S3</th>
-              <th class="c-tyre">Tyre</th>
-              <th class="c-pit">Pit</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-        <div id="towerEmpty" class="empty">Live timing starts about 45 minutes before each session.</div>
-      </div>
-    </section>
-
-    <section class="card map-card" id="mapCard">
-      <div class="card-head"><h2 id="mapTitle">Track</h2><span id="weather" class="muted small"></span></div>
-      <div class="map-wrap">
-        <svg id="map" class="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-label="Track map with car positions"></svg>
-        <div id="mapNote" class="map-note"></div>
-      </div>
-    </section>
-
-    <section class="card rc-card" id="rcCard">
-      <div class="card-head"><h2>Race control</h2></div>
-      <ol id="rc" class="rc"></ol>
-    </section>
+    <div class="col col-main">
+      <section class="card tower-card" id="towerCard">
+        <div class="card-head">
+          <h2 id="towerTitle">Timing</h2>
+          <button id="gapToggle" class="seg" title="Switch between gap to leader and interval">Interval</button>
+        </div>
+        <div id="favBar" class="fav-bar" hidden></div>
+        <div class="tower-wrap">
+          <table class="tower" id="tower">
+            <thead>
+              <tr>
+                <th class="c-pos">P</th>
+                <th class="c-drv">Driver</th>
+                <th class="c-gap">Gap</th>
+                <th class="c-int">Int</th>
+                <th class="c-last">Last</th>
+                <th class="c-best">Best</th>
+                <th class="c-sec">S1</th>
+                <th class="c-sec">S2</th>
+                <th class="c-sec">S3</th>
+                <th class="c-tyre">Tyre</th>
+                <th class="c-pit">Pit</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <div id="towerEmpty" class="empty">Live timing starts about 45 minutes before each session.</div>
+        </div>
+      </section>
+      <section class="card ins-card" id="insCard">
+        <div class="card-head">
+          <div class="tabs" role="tablist" aria-label="Insights" id="insTabs">
+            <button type="button" role="tab" data-tab="strategy">Strategy</button>
+            <button type="button" role="tab" data-tab="trace">Race trace</button>
+            <button type="button" role="tab" data-tab="standings">Standings</button>
+            <button type="button" role="tab" data-tab="results">Results</button>
+          </div>
+        </div>
+        <div id="insTools" class="ins-tools"></div>
+        <div id="insBody" class="ins-body"></div>
+      </section>
+    </div>
+    <div class="col col-side">
+      <section class="card map-card" id="mapCard">
+        <div class="card-head"><h2 id="mapTitle">Track</h2></div>
+        <div class="map-wrap">
+          <svg id="map" class="map" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" aria-label="Track map with car positions"></svg>
+          <div id="mapNote" class="map-note"></div>
+        </div>
+        <div id="wx" class="wx" hidden></div>
+      </section>
+      <section class="card tele-card" id="teleCard">
+        <div class="card-head">
+          <h2>Telemetry</h2>
+          <select id="teleDriver" class="sel" aria-label="Driver for telemetry"></select>
+        </div>
+        <div id="tele" class="tele"></div>
+      </section>
+      <section class="card rc-card" id="rcCard">
+        <div class="card-head"><h2>Race control</h2></div>
+        <ol id="rc" class="rc"></ol>
+      </section>
+      <section class="card radio-card" id="radioCard">
+        <div class="card-head">
+          <h2>Team radio <span id="radioCount" class="count"></span></h2>
+          <button type="button" id="radioFilter" class="seg-on" hidden></button>
+        </div>
+        <ol id="radio" class="rc radio"></ol>
+        <audio id="radioAudio" preload="none"></audio>
+      </section>
+      <section class="card weekend" id="weekendCard">
+        <div class="card-head"><h2>Next race weekend</h2><span id="tzLabel" class="muted small"></span></div>
+        <div id="weekend" class="weekend-body"><div class="empty">Loading calendar…</div></div>
+      </section>
+    </div>
   </main>
+
+  <div id="tip" class="tip" role="tooltip" hidden></div>
 
   <dialog id="settings" class="settings">
     <form method="dialog" class="settings-inner">
@@ -91,9 +126,21 @@
         <span class="hint">Holds the data back so it matches what you see on F1 TV. Watch for a sector or flag change on screen and nudge this until the page agrees. F1 TV is often 20–45 s behind.</span>
       </label>
 
+      <label class="field">
+        <span class="field-label">Favourite driver</span>
+        <select id="favSelect" class="sel wide"></select>
+        <span class="hint">Highlighted in the timing tower, on the map, in the charts and standings, with the gaps around them shown above the timing tower. Their telemetry is shown by default.</span>
+      </label>
+
+      <div class="field">
+        <span class="field-label">Calendar feed</span>
+        <span class="hint">Subscribe to every session in your phone's or Mac's Calendar. Add it on each device ("On My iPhone" / "On My Mac"), not to iCloud: Apple's servers can't reach your home network.</span>
+        <div class="cal-links" id="calLinks"></div>
+      </div>
+
       <div class="field">
         <span class="field-label">F1 TV sign-in <b id="tokenState"></b></span>
-        <span class="hint">Car positions on the track map need your F1 TV subscription token. Sign in at formula1.com on a computer, open the browser's developer tools → Application/Storage → Cookies → formula1.com, and copy the value of the <code>login-session</code> cookie. Paste it here; the token is pulled out of it and stored only on your homelab box.</span>
+        <span class="hint">Car positions on the track map and telemetry need your F1 TV subscription token. Sign in at formula1.com on a computer, open the browser's developer tools → Application/Storage → Cookies → formula1.com, and copy the value of the <code>login-session</code> cookie. Paste it here; the token is pulled out of it and stored only on your homelab box.</span>
         <textarea id="tokenInput" rows="3" placeholder="Paste the login-session cookie value (or the subscriptionToken)"></textarea>
         <div class="row">
           <button type="button" id="tokenSave" class="btn primary">Save token</button>
