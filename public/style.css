@@ -203,6 +203,10 @@ textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px s
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .btn { background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 6px 14px; cursor: pointer; font-weight: 600; }
 .btn.primary { background: var(--red); border-color: var(--red); color: #fff; }
+.sec-warn { display: flex; flex-direction: column; gap: 4px; border: 1px solid var(--orange); border-left-width: 4px; border-radius: 8px; padding: 8px 10px; font-size: 13px; line-height: 1.45; color: var(--text); background: color-mix(in srgb, var(--orange) 10%, transparent); }
+.sec-warn strong { color: var(--orange); }
+.sec-warn span { color: var(--muted); }
+.sec-warn[hidden] { display: none; }
 .ok { color: var(--green); } .warn { color: var(--orange); } .bad { color: var(--red); }
 
 /* favourite driver */

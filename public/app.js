@@ -1535,6 +1535,8 @@ function showPitLoss() {
 }
 
 function renderSettings() {
+  // From the server's own configuration, not from whatever secret this browser remembers.
+  $('secretWarn').hidden = !status || status.secretConfigured !== false;
   const t = status?.token;
   const el = $('tokenState');
   if (status?.live?.tokenRejected) { el.textContent = 'Rejected — paste a fresh one'; el.className = 'bad'; }

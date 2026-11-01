@@ -116,7 +116,7 @@ const schedule = new Schedule({ dataDir: DATA });
 let windowOpen = false;
 
 function statusView() {
-  return { demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), bufferSeconds: BUFFER_MS / 1000 };
+  return { demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
 }
 
 async function tick() {
