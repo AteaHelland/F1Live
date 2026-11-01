@@ -124,6 +124,18 @@ Settings shows where the current token came from and when it expires. The token 
 only in `data/` on your server. If F1 rejects it, the dashboard keeps running without car
 positions.
 
+### Protect token changes (recommended)
+
+Without a secret, anyone who can reach the page can replace or remove the saved token (they
+can't read it). To lock that down, create `.env` next to `docker-compose.yml`:
+
+    cp .env.example .env
+    openssl rand -hex 32        # paste the result after F1LIVE_SECRET=
+
+Put the same value in `login/.env`, then run `sudo docker compose up -d` in both folders. The
+page asks for the secret the first time you save or remove a token in a browser, and
+remembers it there.
+
 ## Configuration
 
 Set these under `environment:` in `docker-compose.yml`, then run `sudo docker compose up -d`
@@ -134,6 +146,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `DEMO` | `0` | `1` plays a simulated race instead of connecting to F1 |
 | `LIVE_ALWAYS` | `0` | `1` stays connected to F1 all the time, not just around sessions |
 | `BUFFER_SECONDS` | `150` | How much recent data the server keeps, which caps the broadcast delay |
+| `F1LIVE_SECRET` | – | Required to change or remove the token; set it in `.env` (see above) |
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, last session and token are kept |
 | `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
@@ -163,5 +176,6 @@ reload the page in your browser.
 
 ## Keep secrets out of git
 
-`data/` (your token) and `login/.env` (your F1 password) are listed in `.gitignore`. Check
+`data/` (your token), `.env` (your secret) and `login/.env` (your F1 password) are listed in
+`.gitignore`. Check
 `git status` before committing, and don't put a real token in `docker-compose.yml`.
