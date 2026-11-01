@@ -420,7 +420,7 @@ function pitWindow() {
   const map = {};
   for (const c of cars) {
     if (c.l.InPit) continue;
-    const G = c.g + loss;
+    const G = c.g + loss + penTime(c.n); // an open time penalty is served at the stop
     const others = cars.filter((o) => o.n !== c.n);
     const before = others.filter((o) => o.g <= G);
     const ahead = before[before.length - 1];
@@ -433,6 +433,100 @@ const pitText = (w) => `Pit now → P${w.pos}${w.ahead ? `, ${w.ahead.d.toFixed(
 
 const EYE_ON = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const EYE_OFF = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3l18 18M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.3 4.2M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+
+// ---------- penalties ----------
+// From race control: "FIA STEWARDS: 5 SECOND TIME PENALTY FOR CAR 44 (HAM) - CAUSING A COLLISION",
+// and later "FIA STEWARDS: PENALTY SERVED - 5 SECOND TIME PENALTY FOR CAR 44 (HAM) - ...".
+function parsePenalty(text) {
+  const m = String(text || '').toUpperCase();
+  if (!/PENALTY|GRID DROP/.test(m) || /NO FURTHER|NOTED|UNDER INVESTIGATION|WILL BE INVESTIGATED/.test(m)) return null;
+  const car = /\bCAR (\d+)/.exec(m)?.[1];
+  if (!car) return null;
+  let x, kind, secs = 0;
+  if ((x = /(\d+) SECOND TIME PENALTY/.exec(m))) { kind = 'time'; secs = Number(x[1]); }
+  else if (/DRIVE[ -]?THROUGH/.test(m)) kind = 'dt';
+  else if ((x = /(\d+) SECOND STOP ?(?:\/|AND|&) ?GO/.exec(m))) { kind = 'sg'; secs = Number(x[1]); }
+  else if (/STOP ?(?:\/|AND|&) ?GO/.test(m)) kind = 'sg';
+  else if ((x = /(\d+)[ -]PLACE GRID/.exec(m))) { kind = 'grid'; secs = Number(x[1]); }
+  else return null;
+  const reason = /\bCAR \d+ \([^)]+\)\s*-\s*(.+)$/.exec(m)?.[1] || '';
+  return { car, kind, secs, reason, served: /PENALTY SERVED/.test(m), withdrawn: /WITHDRAWN|RESCINDED|REVOKED|CANCELLED/.test(m) };
+}
+
+let penCache = { key: '', list: [] };
+function penalties() {
+  const msgs = list(state.RaceControlMessages?.Messages);
+  const key = `${sessionKey(state)}|${msgs.length}|${msgs[msgs.length - 1]?.Utc || ''}`;
+  if (penCache.key === key) return penCache.list;
+  const out = [];
+  for (const msg of msgs) {
+    const p = parsePenalty(msg.Message);
+    if (!p) continue;
+    if (p.served || p.withdrawn) {
+      // Match the oldest open penalty of the same kind for that car, else any open one.
+      const open = out.filter((o) => o.car === p.car && o.status === 'pending');
+      const hit = open.find((o) => o.kind === p.kind && o.secs === p.secs) || open[0];
+      if (hit) { hit.status = p.served ? 'served' : 'withdrawn'; hit.doneAt = msg.Utc; }
+      continue;
+    }
+    out.push({ ...p, status: 'pending', at: msg.Utc, lap: msg.Lap });
+  }
+  penCache = { key, list: out };
+  return out;
+}
+
+const sessionOver = () => ['Finished', 'Finalised', 'Ends'].includes(sessionStatus());
+// Status as shown: a time penalty still open when the race ends is added to the race time.
+function penStatus(p) {
+  if (p.status !== 'pending') return p.status;
+  if (p.kind === 'grid') return 'grid';
+  return sessionOver() && isRaceSession() ? 'added' : 'pending';
+}
+const PEN_STATUS = { pending: 'To serve', served: 'Served', added: 'Added to race time', withdrawn: 'Withdrawn', grid: 'For the grid' };
+const penName = (p) => ({ time: `${p.secs}-second time penalty`, dt: 'Drive-through penalty', sg: p.secs ? `${p.secs}-second stop-and-go` : 'Stop-and-go penalty', grid: `${p.secs}-place grid drop` }[p.kind]);
+const penShort = (p) => ({ time: `+${p.secs}s`, dt: 'DT', sg: p.secs ? `S&G ${p.secs}s` : 'S&G', grid: `Grid +${p.secs}` }[p.kind]);
+const sentence = (t) => (t ? t.charAt(0) + t.slice(1).toLowerCase() : '');
+// Seconds a pending time penalty adds to this car's next pit stop.
+const penTime = (num) => penalties().filter((p) => p.car === num && p.kind === 'time' && p.status === 'pending').reduce((a, p) => a + p.secs, 0);
+
+// Badge next to the driver in the timing tower.
+function penBadge(num) {
+  const ps = penalties().filter((p) => p.car === num && p.status !== 'withdrawn');
+  if (!ps.length) return '';
+  const title = ps.map((p) => `${penName(p)} · ${PEN_STATUS[penStatus(p)]}${p.reason ? ` · ${sentence(p.reason)}` : ''}`).join('\n');
+  const open = ps.filter((p) => ['pending', 'added'].includes(penStatus(p)));
+  if (open.length) {
+    const t = open.filter((p) => p.kind === 'time').reduce((a, p) => a + p.secs, 0);
+    const label = [t ? `+${t}s` : '', ...open.filter((p) => p.kind !== 'time').map(penShort)].filter(Boolean).join(' ');
+    return `<span class="pen ${open.some((p) => penStatus(p) === 'added') ? 'added' : 'pending'}" title="${esc(title)}">${esc(label)}</span>`;
+  }
+  const grid = ps.filter((p) => p.kind === 'grid');
+  if (grid.length) return `<span class="pen grid" title="${esc(title)}">${esc(penShort(grid[grid.length - 1]))}</span>`;
+  return `<span class="pen served" title="${esc(title)}">✓ ${esc(ps.length === 1 ? penShort(ps[0]).replace('+', '') : 'served')}</span>`;
+}
+
+// Summary at the top of the race control card.
+let penKey = '';
+function renderPenalties() {
+  const el = $('penList');
+  const ps = penalties();
+  const key = ps.map((p) => `${p.at}${p.status}${penStatus(p)}`).join('|') + DL()[ps[0]?.car]?.Tla;
+  if (key === penKey) return;
+  penKey = key;
+  if (!ps.length) { el.hidden = true; el.innerHTML = ''; return; }
+  const open = ps.filter((p) => penStatus(p) === 'pending').length;
+  el.innerHTML = `<div class="pen-h"><span>Penalties</span><span class="muted">${open ? `${open} still to serve` : 'all dealt with'}</span></div>
+    ${ps.slice().reverse().map((p) => {
+      const st = penStatus(p);
+      return `<div class="pen-row${st === 'withdrawn' ? ' gone' : ''}">
+        <span class="when">${p.at ? fmtTime.format(parseUtc(p.at)) : ''}</span>
+        <span class="pen-who"><span class="bar" style="background:${colorOf(p.car)}"></span><b>${esc(tlaOf(p.car))}</b></span>
+        <span class="pen-what">${esc(penName(p))}${p.reason ? `<span class="muted"> · ${esc(sentence(p.reason))}</span>` : ''}</span>
+        <span class="pen-st st-${st}">${st === 'served' ? '✓ ' : ''}${esc(PEN_STATUS[st])}</span>
+      </div>`;
+    }).join('')}`;
+  el.hidden = false;
+}
 
 // ---------- timing tower ----------
 const LETTER = { SOFT: 'S', MEDIUM: 'M', HARD: 'H', INTERMEDIATE: 'I', WET: 'W' };
@@ -524,7 +618,7 @@ function renderTower() {
     return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}">
       <td class="c-vis"><button type="button" class="vis${mapHidden.has(d.Tla || num) ? ' off' : ''}" data-vis="${esc(d.Tla || num)}" aria-pressed="${!mapHidden.has(d.Tla || num)}" aria-label="${mapHidden.has(d.Tla || num) ? 'Show' : 'Hide'} ${esc(d.Tla || num)} on the map">${mapHidden.has(d.Tla || num) ? EYE_OFF : EYE_ON}</button></td>
       <td class="c-pos">${esc(pg ? pg[num].pos : l.Position || '')}</td>
-      <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span><span class="team">${esc(d.TeamName || '')}</span></span></td>
+      <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span>${penBadge(num)}<span class="team">${esc(d.TeamName || '')}</span></span></td>
       <td class="c-gap${leadCls(gap)}">${out ? `<span class="badge out">${l.KnockedOut && q ? esc(koPart(l, q)) : 'OUT'}</span>` : esc(gap)}</td>
       <td class="c-int${leadCls(int)}">${out ? '' : esc(int)}</td>
       <td class="c-last ${lastCls}">${esc(last.Value || '')}</td>
@@ -566,6 +660,8 @@ function renderFavBar(rows, kind) {
     if (behind && !(behind[1].Retired || behind[1].Stopped)) parts.push(`<span class="fb-gap"><span class="muted">Behind</span> <b>${esc(tlaOf(behind[0]))}</b> ${esc(gapOf(behind[1]) || '–')}</span>`);
     if (st) parts.push(`<span class="fb-gap"><span class="muted">Tyre</span> <b>${LETTER[comp] || '?'}</b> ${esc(st.TotalLaps ?? '')} laps</span>`);
     if (l.LastLapTime?.Value) parts.push(`<span class="fb-gap"><span class="muted">Last</span> ${esc(l.LastLapTime.Value)}</span>`);
+    const open = penalties().filter((p) => p.car === fnum && ['pending', 'added'].includes(penStatus(p)));
+    if (open.length) parts.push(`<span class="fb-gap fb-pen"><span class="muted">Penalty</span> <b>${open.map((p) => esc(penShort(p))).join(' ')}</b> ${penStatus(open[0]) === 'added' ? 'added to race time' : 'to serve'}</span>`);
     const q = qInfo();
     if (q?.advance && !l.KnockedOut) {
       const cut = cutoff(rows, q);
@@ -1535,8 +1631,6 @@ function showPitLoss() {
 }
 
 function renderSettings() {
-  // From the server's own configuration, not from whatever secret this browser remembers.
-  $('secretWarn').hidden = !status || status.secretConfigured !== false;
   const t = status?.token;
   const el = $('tokenState');
   if (status?.live?.tokenRejected) { el.textContent = 'Rejected — paste a fresh one'; el.className = 'bad'; }
@@ -1683,23 +1777,11 @@ $('gapToggle').addEventListener('click', () => {
   store.set('gapMode', gapMode);
   dirty = true;
 });
-// Token changes may need the server's shared secret (F1LIVE_SECRET). Asked for once, then kept in this browser.
-function savedSecret() { try { return localStorage.getItem('f1live-secret') || ''; } catch { return ''; } }
-async function tokenFetch(opts) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const secret = savedSecret();
-    const res = await fetch('api/token', { ...opts, headers: { ...(opts.headers || {}), ...(secret ? { 'X-F1Live-Secret': secret } : {}) } });
-    if (res.status !== 401 || attempt) return res;
-    const typed = prompt('This dashboard needs its secret to change the token:');
-    if (!typed) return res;
-    try { localStorage.setItem('f1live-secret', typed.trim()); } catch {}
-  }
-}
 $('tokenSave').addEventListener('click', async () => {
   const msg = $('tokenMsg');
   msg.textContent = 'Saving…';
   try {
-    const res = await tokenFetch({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: $('tokenInput').value }) });
+    const res = await fetch('api/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: $('tokenInput').value }) });
     const j = await res.json();
     if (!res.ok) throw new Error(j.error);
     status = j;
@@ -1709,10 +1791,8 @@ $('tokenSave').addEventListener('click', async () => {
   } catch (e) { msg.textContent = e.message; }
 });
 $('tokenClear').addEventListener('click', async () => {
-  const res = await tokenFetch({ method: 'DELETE' });
-  const j = await res.json();
-  if (!res.ok) { $('tokenMsg').textContent = j.error; return; }
-  status = j;
+  const res = await fetch('api/token', { method: 'DELETE' });
+  status = await res.json();
   $('tokenMsg').textContent = 'Removed.';
   renderSettings();
 });
@@ -1872,7 +1952,7 @@ applyLayout();
 // Each part renders on its own: an error in one card is reported and the rest keep updating.
 const PARTS = [
   ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
-  ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['team radio', renderRadio],
+  ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
   ['insights', renderInsights], ['settings', () => { if ($('settings').open) renderSettings(); }],
 ];
 const failing = new Map(); // part -> message

@@ -106,6 +106,7 @@
       </section>
       <section class="card rc-card" id="rcCard">
         <div class="card-head"><h2>Race control</h2></div>
+        <div id="penList" class="pen-list" hidden></div>
         <ol id="rc" class="rc"></ol>
       </section>
       <section class="card radio-card" id="radioCard">
@@ -174,10 +175,6 @@
 
       <div class="field">
         <span class="field-label">F1 TV sign-in <b id="tokenState"></b></span>
-        <div class="sec-warn" id="secretWarn" role="alert" hidden>
-          <strong>Security warning:</strong> F1LIVE_SECRET is not configured. Token changes are not protected by authentication — anyone who can reach this page can replace or remove the token.
-          <span>To fix it, put the same random value (e.g. from <code>openssl rand -hex 32</code>) as <code>F1LIVE_SECRET=</code> in both <code>.env</code> and <code>login/.env</code>, then run <code>sudo docker compose up -d</code> in both folders.</span>
-        </div>
         <span class="hint">Car positions on the track map and telemetry need your F1 TV subscription token. Sign in at formula1.com on a computer, open the browser's developer tools → Application/Storage → Cookies → formula1.com, and copy the value of the <code>login-session</code> cookie. Paste it here; the token is pulled out of it and stored only on your homelab box.</span>
         <textarea id="tokenInput" rows="3" placeholder="Paste the login-session cookie value (or the subscriptionToken)"></textarea>
         <div class="row">
