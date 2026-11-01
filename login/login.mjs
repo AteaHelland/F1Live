@@ -10,6 +10,7 @@ import crypto from 'node:crypto';
 const env = (k, d) => process.env[k] ?? d;
 const EMAIL = env('F1_EMAIL');
 const PASSWORD = env('F1_PASSWORD');
+const SECRET = env('F1LIVE_SECRET', '').trim(); // must match the dashboard's F1LIVE_SECRET
 const DASHBOARD_URL = env('DASHBOARD_URL', 'http://192.168.1.250:3080').replace(/\/+$/, '');
 const LOGIN_URL = env('LOGIN_URL', 'https://account.formula1.com/#/en/login');
 const HOME_URL = env('HOME_URL', 'https://www.formula1.com/');
@@ -222,7 +223,7 @@ async function signIn(ctx) {
 async function sendToDashboard(token) {
   const res = await fetch(`${DASHBOARD_URL}/api/token`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(SECRET ? { 'X-F1Live-Secret': SECRET } : {}) },
     body: JSON.stringify({ token, source: 'auto' }),
   });
   if (!res.ok) {
@@ -295,10 +296,16 @@ function statusView() {
   };
 }
 
+function secretOk(given) {
+  const h = (v) => crypto.createHash('sha256').update(String(v || '')).digest();
+  return crypto.timingSafeEqual(h(given), h(SECRET));
+}
+
 http.createServer(async (req, res) => {
   const send = (code, body) => { res.writeHead(code, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(body)); };
   if (req.url === '/status') { const s = statusView(); return send(s.ok ? 200 : 503, s); }
   if (req.url === '/run' && req.method === 'POST') {
+    if (SECRET && !secretOk(req.headers['x-f1live-secret'])) return send(401, { error: 'wrong or missing secret' });
     if (running) return send(409, { error: 'already running' });
     if (Date.now() - lastManualRun < 5 * 60 * 1000) return send(429, { error: 'wait a few minutes between manual runs' });
     lastManualRun = Date.now();

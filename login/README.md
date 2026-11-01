@@ -39,6 +39,7 @@ minutes, because it downloads a headless Chromium.
 
     curl -s localhost:3081/status           # 200 when the token is valid, 503 when not
     curl -s -X POST localhost:3081/run      # sign in and send a token now
+    curl -s -X POST -H "X-F1Live-Secret: $SECRET" localhost:3081/run   # when F1LIVE_SECRET is set
 
 Manual runs are limited to one every few minutes. A monitor on `http://<server-ip>:3081/status`
 (Uptime Kuma or similar) goes red when the token has expired or renewal keeps failing, so you
@@ -56,7 +57,9 @@ Set these in `docker-compose.yml`:
 | `MAX_FAILURES` | `3` | Failed sign-ins in a row before it stops trying |
 | `PORT` | `3081` | Port for `/status` and `/run` |
 
-`F1_EMAIL` and `F1_PASSWORD` go in `.env`, which is kept out of git.
+`F1_EMAIL`, `F1_PASSWORD` and `F1LIVE_SECRET` go in `.env`, which is kept out of git.
+`F1LIVE_SECRET` must match the dashboard's; it's sent with each new token and required for
+`POST /run`.
 
 ## Troubleshooting
 

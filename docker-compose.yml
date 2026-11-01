@@ -12,5 +12,8 @@ services:
       - TZ=Europe/Oslo
       # Set to 1 to try the page with a simulated race:
       - DEMO=0
+      # Shared secret for changing the token (set it in .env next to this file).
+      # Leave it empty and token changes stay open to anyone who can reach the page.
+      - F1LIVE_SECRET=${F1LIVE_SECRET:-}
       # Optional: F1 TV token here instead of pasting it on the page.
       # - F1TV_TOKEN=

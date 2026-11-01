@@ -4,6 +4,7 @@ import fs from 'node:fs/promises';
 import fss from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import crypto from 'node:crypto';
 import { LiveTimingClient } from './lib/livetiming.js';
 import { Schedule, inLiveWindow } from './lib/schedule.js';
 import { DemoClient, demoCircuit, demoSchedule, demoStandings, demoRadioWav } from './lib/demo.js';
@@ -28,6 +29,15 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 
 // ---------- F1 TV token ----------
 const TOKEN_FILE = path.join(DATA, 'f1tv-token.txt');
+// Optional shared secret: when set, changing or removing the token needs the X-F1Live-Secret header.
+const SECRET = (process.env.F1LIVE_SECRET || '').trim();
+function authorized(req) {
+  if (!SECRET) return true;
+  const given = String(req.headers['x-f1live-secret'] || '');
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = crypto.createHash('sha256').update(SECRET).digest();
+  return crypto.timingSafeEqual(a, b);
+}
 let token = (process.env.F1TV_TOKEN || '').trim() || null;
 try { token = (await fs.readFile(TOKEN_FILE, 'utf8')).trim() || token; } catch {}
 const META_FILE = path.join(DATA, 'f1tv-token-meta.json');
@@ -209,6 +219,9 @@ const server = http.createServer(async (req, res) => {
       try { return json(res, 200, await circuit(url.searchParams.get('key') || '', url.searchParams.get('year') || '')); }
       catch (e) { return json(res, 404, { error: e.message }); }
     }
+    if (url.pathname === '/api/token' && (req.method === 'POST' || req.method === 'DELETE') && !authorized(req)) {
+      return json(res, 401, { error: 'Wrong or missing secret.', needSecret: true });
+    }
     if (url.pathname === '/api/token' && req.method === 'POST') {
       const body = await readBody(req);
       let input = body, source = 'manual';
@@ -253,7 +266,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => log(`f1 dashboard on :${PORT}${DEMO ? ' (demo mode)' : ''}; token ${token ? 'present' : 'not set'}`));
+server.listen(PORT, () => log(`f1 dashboard on :${PORT}${DEMO ? ' (demo mode)' : ''}; token ${token ? 'present' : 'not set'}; token changes ${SECRET ? 'need the secret' : 'are open (F1LIVE_SECRET not set)'}`));
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     try {
