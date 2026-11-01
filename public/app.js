@@ -505,11 +505,14 @@ function penBadge(num) {
   return `<span class="pen served" title="${esc(title)}">✓ ${esc(ps.length === 1 ? penShort(ps[0]).replace('+', '') : 'served')}</span>`;
 }
 
-// Summary at the top of the race control card.
+// Summary at the top of the race control card. Served and withdrawn penalties stay for a
+// minute after F1 confirms them, then drop off the list.
+const PEN_LINGER = 60000;
+const penGone = (p) => ['served', 'withdrawn'].includes(p.status) && p.doneAt && shownNow() - parseUtc(p.doneAt).getTime() > PEN_LINGER;
 let penKey = '';
 function renderPenalties() {
   const el = $('penList');
-  const ps = penalties();
+  const ps = penalties().filter((p) => !penGone(p));
   const key = ps.map((p) => `${p.at}${p.status}${penStatus(p)}`).join('|') + DL()[ps[0]?.car]?.Tla;
   if (key === penKey) return;
   penKey = key;
@@ -1631,6 +1634,8 @@ function showPitLoss() {
 }
 
 function renderSettings() {
+  // From the server's own configuration, not from whatever secret this browser remembers.
+  $('secretWarn').hidden = !status || status.secretConfigured !== false;
   const t = status?.token;
   const el = $('tokenState');
   if (status?.live?.tokenRejected) { el.textContent = 'Rejected — paste a fresh one'; el.className = 'bad'; }
@@ -1777,11 +1782,23 @@ $('gapToggle').addEventListener('click', () => {
   store.set('gapMode', gapMode);
   dirty = true;
 });
+// Token changes may need the server's shared secret (F1LIVE_SECRET). Asked for once, then kept in this browser.
+function savedSecret() { try { return localStorage.getItem('f1live-secret') || ''; } catch { return ''; } }
+async function tokenFetch(opts) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const secret = savedSecret();
+    const res = await fetch('api/token', { ...opts, headers: { ...(opts.headers || {}), ...(secret ? { 'X-F1Live-Secret': secret } : {}) } });
+    if (res.status !== 401 || attempt) return res;
+    const typed = prompt('This dashboard needs its secret to change the token:');
+    if (!typed) return res;
+    try { localStorage.setItem('f1live-secret', typed.trim()); } catch {}
+  }
+}
 $('tokenSave').addEventListener('click', async () => {
   const msg = $('tokenMsg');
   msg.textContent = 'Saving…';
   try {
-    const res = await fetch('api/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: $('tokenInput').value }) });
+    const res = await tokenFetch({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: $('tokenInput').value }) });
     const j = await res.json();
     if (!res.ok) throw new Error(j.error);
     status = j;
@@ -1791,8 +1808,10 @@ $('tokenSave').addEventListener('click', async () => {
   } catch (e) { msg.textContent = e.message; }
 });
 $('tokenClear').addEventListener('click', async () => {
-  const res = await fetch('api/token', { method: 'DELETE' });
-  status = await res.json();
+  const res = await tokenFetch({ method: 'DELETE' });
+  const j = await res.json();
+  if (!res.ok) { $('tokenMsg').textContent = j.error; return; }
+  status = j;
   $('tokenMsg').textContent = 'Removed.';
   renderSettings();
 });
