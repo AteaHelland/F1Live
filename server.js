@@ -18,6 +18,17 @@ import { Recorder, Player } from './lib/recorder.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
+// Version of the page files. Their URLs carry it (app.js?v=…), so a browser can't keep
+// running an old copy after an update, and the page reloads itself when it changes.
+const BUILD = (() => {
+  const h = crypto.createHash('sha256');
+  for (const f of fss.readdirSync(PUBLIC).sort()) if (/\.(html|js|css)$/.test(f)) h.update(fss.readFileSync(path.join(PUBLIC, f)));
+  return h.digest('hex').slice(0, 10);
+})();
+const versioned = (text) => text
+  .replace(/(src|href)="(app\.js|style\.css)"/g, `$1="$2?v=${BUILD}"`)
+  .replace(/from '\.\/([\w-]+\.js)'/g, `from './$1?v=${BUILD}'`)
+  .replaceAll('__F1LIVE_BUILD__', BUILD);
 const PORT = Number(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || path.join(ROOT, 'data');
 const DEMO = process.env.DEMO === '1';
@@ -163,7 +174,7 @@ const schedule = new Schedule({ dataDir: DATA });
 let windowOpen = false;
 
 function statusView() {
-  return { demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
+  return { build: BUILD, demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
 }
 
 async function tick() {
@@ -324,6 +335,10 @@ const server = http.createServer(async (req, res) => {
     const file = path.normalize(path.join(PUBLIC, p));
     if (!file.startsWith(PUBLIC + path.sep)) return json(res, 403, { error: 'forbidden' });
     if (!fss.existsSync(file) || fss.statSync(file).isDirectory()) return json(res, 404, { error: 'not found' });
+    if (/\.(html|js|css)$/.test(file)) {
+      res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'text/plain', 'Cache-Control': 'no-cache' });
+      return res.end(versioned(await fs.readFile(file, 'utf8')));
+    }
     res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
     fss.createReadStream(file).pipe(res);
   } catch (e) {

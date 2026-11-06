@@ -19,6 +19,18 @@ let offset = 0; // server clock minus browser clock
 let delay = store.get('delay', 0);
 let gapMode = store.get('gapMode', 'int');
 let status = null;
+// The page's own version (filled in by the server). When the server reports another one,
+// the dashboard was updated: reload once so the new page runs.
+const BUILD = '__F1LIVE_BUILD__';
+function checkBuild() {
+  const b = status?.build;
+  if (!b || b === BUILD || BUILD.startsWith('__')) return;
+  let tried = null;
+  try { tried = sessionStorage.getItem('f1live-reloaded-for'); } catch {}
+  if (tried === b) return; // reloaded already and still old: don't loop
+  try { sessionStorage.setItem('f1live-reloaded-for', b); } catch {}
+  location.reload();
+}
 let schedule = null;
 let es = null;
 let dirty = true;
@@ -61,12 +73,13 @@ function connect() {
     hist = d.history || [];
     teleBuf.clear();
     status = d.status;
+    checkBuild();
     drain();
     dirty = true;
   });
   es.onmessage = (e) => queue.push(JSON.parse(e.data));
   es.addEventListener('hist', (e) => { hist.push(JSON.parse(e.data)); if (hist.length > 8000) hist.splice(0, hist.length - 8000); });
-  es.addEventListener('status', (e) => { status = JSON.parse(e.data); dirty = true; });
+  es.addEventListener('status', (e) => { status = JSON.parse(e.data); checkBuild(); dirty = true; });
   es.onerror = () => {
     if (status) status = { ...status, live: { ...status.live, status: 'reconnecting' } };
     dirty = true;
