@@ -41,6 +41,8 @@ let season = null, seasonErr = null;
 let resSel = store.get('resSel', null); // { year, round, kind }
 let h2h = store.get('h2h', { a: '', b: '' }); // driver codes
 const resCache = new Map();
+let viewing = null;          // a saved session being looked at instead of the live feed
+let sessionList = null;      // saved sessions, for the picker
 
 // Server time minus the broadcast delay: the moment the page is "showing".
 const shownNow = () => Date.now() + offset - delay * 1000;
@@ -49,6 +51,7 @@ const shownNow = () => Date.now() + offset - delay * 1000;
 function connect() {
   if (es) es.close();
   es = new EventSource('api/stream');
+  es.addEventListener('sessions', () => { sessionList = null; if ($('sessions').open) openSessions(); });
   es.addEventListener('init', (e) => {
     const d = JSON.parse(e.data);
     offset = d.serverNow - Date.now();
@@ -81,6 +84,68 @@ function drain() {
   if (n) dirty = true;
 }
 
+// ---------- saved sessions ----------
+// Opening one swaps the page over to that session's data; the live feed is let go until
+// "Back to live" so nothing from it mixes in.
+function resetView() {
+  queue = [];
+  teleBuf.clear();
+  insKey = ''; teleOptsKey = ''; ghostKey = ''; rcKey = null; radioKey = ''; penKey = ''; flagKey = '';
+  penCache = { key: '', list: [] };
+  dirty = true;
+}
+async function openArchive(id) {
+  let d;
+  try {
+    const res = await fetch(`api/session?id=${encodeURIComponent(id)}`);
+    d = await res.json();
+    if (!res.ok) throw new Error(d.error || res.statusText);
+  } catch (e) {
+    alert(`Couldn't open that session: ${e.message}`);
+    if (!viewing && !es) { window.history.replaceState(null, '', location.pathname + location.search); connect(); }
+    return;
+  }
+  if (es) { es.close(); es = null; }
+  viewing = { id: d.id, ...d.info };
+  state = d.state || {};
+  hist = d.history?.entries || [];
+  resetView();
+  window.history.replaceState(null, '', `#s=${encodeURIComponent(d.id)}`);
+}
+function backToLive() {
+  viewing = null;
+  state = {};
+  hist = [];
+  resetView();
+  window.history.replaceState(null, '', location.pathname + location.search);
+  connect();
+}
+const weekendLabel = (s) => `${s.round ? `R${s.round} · ` : ''}${s.circuit}`;
+async function openSessions() {
+  const box = $('sessionsList');
+  if (!sessionList) {
+    box.innerHTML = '<div class="empty small">Loading…</div>';
+    if (!$('sessions').open) $('sessions').showModal();
+    try { sessionList = await (await fetch('api/sessions')).json(); }
+    catch { box.innerHTML = '<div class="empty small">Couldn\'t load the saved sessions.</div>'; return; }
+  }
+  const weekends = new Map(); // "year|round|circuit" → { label, meeting, year, sessions }
+  for (const s of sessionList) {
+    const k = `${s.year}|${s.round}|${s.circuit}`;
+    if (!weekends.has(k)) weekends.set(k, { year: s.year, label: weekendLabel(s), meeting: s.meeting, sessions: [] });
+    weekends.get(k).sessions.push(s);
+  }
+  let year = null, html = '';
+  for (const w of weekends.values()) {
+    if (w.year !== year) { year = w.year; html += `<div class="ses-year">${esc(year)}</div>`; }
+    const chips = w.sessions.slice().reverse().map((s) => `<button type="button" class="chip-btn${viewing?.id === s.id ? ' on' : ''}" data-ses="${esc(s.id)}" title="${esc(s.name)}${s.start ? ` · ${esc(fmtDay.format(new Date(s.start)))}` : ''}">${esc(s.code)}</button>`).join('');
+    html += `<div class="ses-wk"><div class="ses-wk-name"><b>${esc(w.label)}</b><span>${esc(w.meeting || '')}</span></div><div class="ses-chips">${chips}</div></div>`;
+  }
+  box.innerHTML = html || '<div class="empty small">Nothing saved yet. Each session is saved here as it runs.</div>';
+  $('sessionsLive').classList.toggle('on', !viewing);
+  if (!$('sessions').open) $('sessions').showModal();
+}
+
 async function loadSchedule() {
   try {
     schedule = await (await fetch('api/schedule')).json();
@@ -101,7 +166,7 @@ const carsOnTrack = () => Object.values(state.TimingData?.Lines || {})
 // Qualifying after the clock has run out: the part isn't over until every car is back in the
 // pit lane, because the laps started before the flag still count.
 const qualiRunDown = () => sessionType() === 'Qualifying' && clockSecs() === 0 && carsOnTrack() > 0;
-const isLive = () => hasSession() && status?.live?.status === 'connected' &&
+const isLive = () => !viewing && hasSession() && status?.live?.status === 'connected' &&
   (['Started', 'Aborted'].includes(sessionStatus()) || qualiRunDown());
 
 // ---------- what kind of session this is ----------
@@ -114,7 +179,7 @@ const CAL_TYPE = {
 };
 // The latest calendar session that has started (or is about to) and isn't long over.
 function calendarSession(now = Date.now()) {
-  if (status?.demo) return null;
+  if (status?.demo || viewing) return null;
   let found = null;
   for (const s of schedule?.next?.sessions || []) {
     const start = new Date(s.start).getTime();
@@ -264,7 +329,8 @@ function renderHeader() {
   const chip = $('liveChip');
   const ls = status?.live?.status;
   chip.className = 'chip';
-  if (live) {
+  if (viewing) chip.textContent = 'Saved session';
+  else if (live) {
     chip.classList.add('live');
     chip.textContent = status?.demo ? 'Demo' : delay ? `Live −${delay}s` : 'Live';
   } else if (ls === 'connected') chip.textContent = 'Connected';
@@ -273,6 +339,7 @@ function renderHeader() {
 }
 
 // ---------- header: live now / next session ----------
+let nextHtml = null;
 const shortGp = (n) => String(n || '').replace(/ Grand Prix$/, ' GP');
 function renderNext() {
   const el = $('nextInfo');
@@ -285,7 +352,12 @@ function renderNext() {
   const onNow = sessions.find((s) => now >= s.startMs && now < s.endMs);
   const next = sessions.find((s) => s.startMs > now);
   let html = '';
-  if (isLive() || onNow) {
+  if (viewing) {
+    const d = viewing.start ? fmtDay.format(new Date(viewing.start)) : '';
+    html = `<span class="nx-label">Saved · ${esc(viewing.year)} ${esc(weekendLabel(viewing))}</span>
+      <span class="nx-main"><b>${esc(viewing.name)}</b><span class="nx-gp">${d ? ` · ${esc(d)}` : ''}</span></span>
+      <button type="button" class="btn sm back-live${onNow ? ' primary' : ''}" data-back-live>${onNow ? `● ${esc(onNow.name)} is live` : 'Back to live'}</button>`;
+  } else if (isLive() || onNow) {
     // Prefer what the feed says is running (sessions can overrun their slot).
     const si = state.SessionInfo;
     const q = isLive() ? qInfo() : null;
@@ -305,7 +377,7 @@ function renderNext() {
       <span class="nx-main"><b>${esc(next.name)}</b><span class="nx-gp"> · ${esc(shortGp(wk.name))}</span></span>
       <span class="nx-count${soon ? ' soon' : ''}">in ${esc(dur(next.startMs - now))}</span>`;
   }
-  el.innerHTML = html;
+  if (html !== nextHtml) { nextHtml = html; el.innerHTML = html; } // unchanged: keep the button under the finger
   el.hidden = !html;
 }
 
@@ -1660,6 +1732,13 @@ function renderSettings() {
 }
 
 $('settingsBtn').addEventListener('click', openSettings);
+$('sessionsBtn').addEventListener('click', openSessions);
+$('sessions').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-ses]');
+  if (b) { $('sessions').close(); openArchive(b.dataset.ses); return; }
+  if (e.target.closest('#sessionsLive')) { $('sessions').close(); if (viewing) backToLive(); }
+});
+$('nextInfo').addEventListener('click', (e) => { if (e.target.closest('[data-back-live]')) backToLive(); });
 $('settings').addEventListener('click', (e) => {
   const wb = e.target.closest('[data-wake]');
   if (wb) {
@@ -2006,4 +2085,5 @@ setInterval(() => loadStandings(), 60000);
 })();
 
 loadSchedule();
-connect();
+if (location.hash.startsWith('#s=')) openArchive(decodeURIComponent(location.hash.slice(3)));
+else connect();

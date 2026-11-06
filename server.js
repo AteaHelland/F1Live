@@ -8,11 +8,12 @@ import crypto from 'node:crypto';
 import { LiveTimingClient } from './lib/livetiming.js';
 import { Schedule, inLiveWindow } from './lib/schedule.js';
 import { DemoClient, demoCircuit, demoSchedule, demoStandings, demoRadioWav } from './lib/demo.js';
-import { applyItem, clone } from './public/merge.js';
+import { applyItem, clone, sessionKey } from './public/merge.js';
 import { extractToken } from './lib/token.js';
 import { History } from './lib/history.js';
 import { Jolpica } from './lib/jolpica.js';
 import { buildIcs } from './lib/ics.js';
+import { Archive } from './lib/archive.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -84,12 +85,40 @@ function broadcast(event, data) {
   for (const res of clients) res.write(msg);
 }
 
+// A new session starts with a clean slate: the one before is saved to its own folder and
+// nothing of it (drivers, laps, messages) carries over.
+let restartedFor = null;
 function push(item) {
+  const prevKey = sessionKey(latest);
+  if (item.kind === 'u' && item.topic === 'SessionInfo' && prevKey) {
+    const next = applyItem(clone(latest), item);
+    const nextKey = sessionKey(next);
+    if (nextKey && nextKey !== prevKey) {
+      // F1 moved on to the next session over the same connection. Start from just the new
+      // session's info, then reconnect to get a full snapshot of it.
+      log(`new session: ${next.SessionInfo.Name}; previous one saved`);
+      item = { t: item.t, kind: 'snap', data: { SessionInfo: next.SessionInfo } };
+      if (restartedFor !== nextKey && !DEMO) { restartedFor = nextKey; setTimeout(() => live.restart(), 1000); }
+    }
+  }
+  if (item.kind === 'snap' && prevKey && sessionKey(item.data) !== prevKey) {
+    archiveNow(JSON.stringify(latest), JSON.stringify(history));
+    items = [];   // the delay buffer must not replay the old session on top of the new one
+    base = {};
+  }
   items.push(item);
   latest = applyItem(latest, item);
   dirty = true;
   broadcast(null, item);
   for (const e of history.observe(item, latest)) broadcast('hist', e);
+}
+
+// ---------- session folders (data/sessions/<year>/R<round> - <circuit>/<session>) ----------
+const archive = new Archive({ dataDir: DATA, getRaces: () => schedule.races });
+function archiveNow(stateJson, historyJson) {
+  return archive.save(stateJson, historyJson)
+    .then((dir) => { if (dir) broadcast('sessions', { saved: dir.split(path.sep).join('/') }); return dir; })
+    .catch((e) => { log('session save failed', e.message); });
 }
 
 function prune() {
@@ -101,8 +130,10 @@ setInterval(async () => {
   if (!dirty) return;
   dirty = false;
   try {
-    await fs.writeFile(LAST_FILE, JSON.stringify(latest));
-    await fs.writeFile(HISTORY_FILE, JSON.stringify(history));
+    const st = JSON.stringify(latest), hi = JSON.stringify(history);
+    await fs.writeFile(LAST_FILE, st);
+    await fs.writeFile(HISTORY_FILE, hi);
+    if (!DEMO) await archiveNow(st, hi);
   } catch (e) { log('save failed', e.message); }
 }, 60000);
 
@@ -130,6 +161,11 @@ async function tick() {
   }
 }
 await schedule.load(); // demo mode still uses the real calendar for the .ics feed
+// The session kept from before this start (or before this version) gets its folder too.
+if (!DEMO && sessionKey(latest)) {
+  const dir = await archiveNow(JSON.stringify(latest), JSON.stringify(history));
+  if (dir) log(`last session kept in sessions/${dir.split(path.sep).join('/')}`);
+}
 const jolpica = new Jolpica({ dataDir: DATA, base: JOLPICA_URL });
 await tick();
 setInterval(tick, 60000);
@@ -181,6 +217,11 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/status') return json(res, 200, statusView());
     if (url.pathname === '/api/schedule') return json(res, 200, DEMO ? demoSchedule() : schedule.view());
     if (url.pathname === '/api/state') return json(res, 200, latest);
+    if (url.pathname === '/api/sessions') return json(res, 200, await archive.list());
+    if (url.pathname === '/api/session') {
+      try { return json(res, 200, await archive.load(url.searchParams.get('id'))); }
+      catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'session not found' : e.message }); }
+    }
     if (url.pathname === '/api/standings') {
       if (DEMO) return json(res, 200, demoStandings());
       try { return json(res, 200, await jolpica.standings()); }
@@ -270,8 +311,10 @@ server.listen(PORT, () => log(`f1 dashboard on :${PORT}${DEMO ? ' (demo mode)' :
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => {
     try {
-      await fs.writeFile(LAST_FILE, JSON.stringify(latest));
-      await fs.writeFile(HISTORY_FILE, JSON.stringify(history));
+      const st = JSON.stringify(latest), hi = JSON.stringify(history);
+      await fs.writeFile(LAST_FILE, st);
+      await fs.writeFile(HISTORY_FILE, hi);
+      if (!DEMO) await archiveNow(st, hi);
     } catch {}
     process.exit(0);
   });

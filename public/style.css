@@ -571,3 +571,15 @@ body.editing { padding-bottom: 80px; }
   .tabs button { font-size: 12px; letter-spacing: .3px; padding: 4px 5px; white-space: nowrap; }
   .st-row, .st-axis { grid-template-columns: 64px 1fr; gap: 6px; }
 }
+
+/* saved sessions */
+.ses-list { padding: 4px 16px 16px; overflow-y: auto; }
+.ses-year { font-weight: 900; font-size: 13px; letter-spacing: .8px; color: var(--muted); margin: 14px 0 4px; }
+.ses-wk { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.ses-wk:last-child { border-bottom: 0; }
+.ses-wk-name { display: flex; flex-direction: column; line-height: 1.25; }
+.ses-wk-name span { color: var(--muted); font-size: 13px; }
+.ses-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.ses-live { align-self: flex-start; }
+.ses-live.on { border-color: var(--red); }
+.back-live { white-space: nowrap; }

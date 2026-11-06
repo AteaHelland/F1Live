@@ -51,7 +51,24 @@ second screen next to the broadcast.
   20–45 seconds behind the live data)
 
 The dashboard only connects to F1's feed from 45 minutes before a session until about 90
-minutes after it. It keeps the last session's data, so you can look at results afterwards.
+minutes after it.
+
+Every session is saved in its own folder as it runs, under `data/sessions`:
+
+    data/sessions/2026/R20 - Interlagos/P1/
+                                       P2/
+                                       Q/
+                                       R/
+
+Each folder holds that session's timing state and history (`state.json`, `history.json`) and a
+short `info.json`. The ⟲ button in the header lists them by season and weekend; pick one to look
+back at it, and "Back to live" returns to the feed. The address keeps the session
+(`#s=2026/R20 - Interlagos/P1`), so it can be bookmarked.
+
+A new session always starts from a clean slate: when F1 moves on to the next session, the one
+before is saved to its folder, the page is cleared, and the dashboard reconnects for a full
+snapshot of the new one. Drivers who only ran in practice don't carry over into the next session.
+Round numbers come from the calendar; session folders are named P1, P2, P3, SQ, S, Q and R.
 
 The race trace is built by the server as laps are completed, so it starts from the first lap
 the server sees. If the container restarts mid-race, the laps it missed stay empty.
@@ -148,7 +165,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `BUFFER_SECONDS` | `150` | How much recent data the server keeps, which caps the broadcast delay |
 | `F1LIVE_SECRET` | – | Required to change or remove the token; set it in `.env` (see above) |
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
-| `DATA_DIR` | `./data` | Where the calendar, track outlines, last session and token are kept |
+| `DATA_DIR` | `./data` | Where the calendar, track outlines, saved sessions and token are kept |
 | `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
 | `DEMO_SESSION` | `race` | In demo mode, `quali` plays a qualifying session instead of a race |
 | `JOLPICA_URL` | `https://api.jolpi.ca/ergast/f1` | Calendar, standings and results API (change only for testing) |

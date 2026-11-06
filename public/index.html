@@ -30,6 +30,9 @@
     <div class="top-mid" id="nextInfo" aria-live="polite"></div>
     <div class="top-right">
       <span id="liveChip" class="chip">Offline</span>
+      <button id="sessionsBtn" class="icon-btn" aria-label="Saved sessions" title="Saved sessions">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+      </button>
       <button id="layoutBtn" class="icon-btn" aria-label="Arrange cards" title="Arrange cards">
         <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
       </button>
@@ -131,6 +134,17 @@
     <button type="button" id="layoutReset" class="btn">Reset</button>
     <button type="button" id="layoutDone" class="btn primary">Done</button>
   </div>
+
+  <dialog id="sessions" class="settings">
+    <form method="dialog" class="settings-inner">
+      <div class="card-head"><h2>Sessions</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+      <div class="field">
+        <button type="button" id="sessionsLive" class="chip-btn ses-live">● Live feed</button>
+        <span class="hint">Every session is saved in its own folder as it runs. Pick one to look back at it; its drivers and data stay separate from the live feed.</span>
+      </div>
+      <div id="sessionsList" class="ses-list"></div>
+    </form>
+  </dialog>
 
   <dialog id="settings" class="settings">
     <form method="dialog" class="settings-inner">
