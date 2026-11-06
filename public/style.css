@@ -583,3 +583,7 @@ body.editing { padding-bottom: 80px; }
 .ses-live { align-self: flex-start; }
 .ses-live.on { border-color: var(--red); }
 .back-live { white-space: nowrap; }
+
+/* race: who just moved up or down the order */
+.tower tr.up .drv, .tower tr.down .drv { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 5px; }
+.tower tr.down .drv { outline-color: var(--orange); }

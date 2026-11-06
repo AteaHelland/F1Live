@@ -19,6 +19,9 @@ second screen next to the broadcast.
 - Track status (green, yellow, safety car, VSC, red), shown as a colour bar across the top
 - Lap count and a timing tower: positions, gap or interval (tap to switch), last lap
 - Sector times, coloured for personal and overall bests
+- The session's fastest lap in purple under Best (in qualifying, the fastest of the current part)
+- In races and sprints, a green box around a driver who just moved up the order and an orange
+  one around a driver who dropped back; each lasts 8 seconds
 - Tyre compound, tyre age and pit stops
 - Penalties from the stewards (time, drive-through, stop-and-go, grid drops): a badge next to the
   driver and a list at the top of race control, marked served when F1 confirms it

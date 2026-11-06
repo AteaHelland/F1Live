@@ -90,6 +90,7 @@ function drain() {
 function resetView() {
   queue = [];
   teleBuf.clear();
+  posMem.clear();
   insKey = ''; teleOptsKey = ''; ghostKey = ''; rcKey = null; radioKey = ''; penKey = ''; flagKey = '';
   penCache = { key: '', list: [] };
   dirty = true;
@@ -621,6 +622,31 @@ function secCell(s) {
   return `<span class="sec ${cls}">${esc(s.Value)}</span>`;
 }
 
+// Race only: drivers who moved up (green box) or down (orange box) the order in the last
+// few seconds. Changes are only noticed while live, so opening the page or a saved session
+// doesn't light everyone up.
+const MOVE_MS = 8000;
+const posMem = new Map(); // num -> { pos, dir, at }
+let posKey = '';
+function movesFor(rows) {
+  const key = `${sessionKey(state)}|${viewing?.id || ''}`;
+  if (key !== posKey) { posKey = key; posMem.clear(); }
+  const now = Date.now(), live = isLive();
+  for (const [num, l] of rows) {
+    const pos = Number(l.Position) || 0;
+    const m = posMem.get(num);
+    if (!m) { posMem.set(num, { pos, dir: 0, at: 0 }); continue; }
+    if (live && pos && m.pos && pos !== m.pos && !(l.Retired || l.Stopped)) { m.dir = pos < m.pos ? 1 : -1; m.at = now; }
+    if (pos) m.pos = pos;
+  }
+  return (num) => { const m = posMem.get(num); return m && now - m.at < MOVE_MS ? m.dir : 0; };
+}
+
+// The best lap shown for a driver: this part's best in qualifying, else the session best.
+const shownBest = (l, q) => q
+  ? (l.KnockedOut ? lastWith(l.BestLapTimes, 'Value') : partBest(l, q.part))
+  : l.BestLapTime?.Value || lastWith(l.BestLapTimes, 'Value');
+
 function renderTower() {
   const lines = state.TimingData?.Lines || {};
   const drivers = state.DriverList || {};
@@ -649,6 +675,14 @@ function renderTower() {
   const tnum = teleNum();
   const pw = kind === 'race' ? pitWindow() : null;
   const pg = kind !== 'race' && !q ? practiceGaps(rows) : null;
+  const moved = kind === 'race' ? movesFor(rows) : () => 0;
+  // Fastest lap of the session (of this part in qualifying), shown in purple under Best.
+  let fastest = null;
+  for (const [, l] of rows) {
+    if (q && l.KnockedOut) continue;
+    const t = parseLap(shownBest(l, q));
+    if (t && (fastest == null || t < fastest)) fastest = t;
+  }
   $('ghostHead').title = pw ? `Where each driver would rejoin if they pitted now (pit loss ${pw.loss.toFixed(1)} s, ${pw.source}${pw.factor < 1 ? ', reduced under safety car' : ''})` : '';
 
   // Qualifying: drivers knocked out in earlier parts fold into one line at the bottom.
@@ -676,9 +710,9 @@ function renderTower() {
     const leadCls = (v) => (/^LAP/i.test(v) ? ' lead' : '');
     const last = l.LastLapTime || {};
     const lastCls = last.OverallFastest ? 't-ob' : last.PersonalFastest ? 't-pb' : '';
-    const best = q
-      ? (l.KnockedOut ? lastWith(l.BestLapTimes, 'Value') : partBest(l, q.part))
-      : l.BestLapTime?.Value || lastWith(l.BestLapTimes, 'Value');
+    const best = shownBest(l, q);
+    const bestCls = fastest != null && parseLap(best) === fastest && !(q && l.KnockedOut) ? ' t-ob' : '';
+    const mv = out ? 0 : moved(num);
     const pos = Number(l.Position);
     const dz = q?.advance && !l.KnockedOut && pos > q.advance;
     const cutRow = q?.advance && pos === q.advance;
@@ -690,14 +724,14 @@ function renderTower() {
     const tyre = st
       ? `<span class="tyre"><span class="t ${esc(comp)}"><span>${LETTER[comp] || '?'}</span></span><span class="age">${st.TotalLaps ?? ''}</span>${st.New === 'false' ? '<span class="used" title="Used set">u</span>' : ''}</span>`
       : '';
-    return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}">
+    return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}${mv > 0 ? ' up' : mv < 0 ? ' down' : ''}">
       <td class="c-vis"><button type="button" class="vis${mapHidden.has(d.Tla || num) ? ' off' : ''}" data-vis="${esc(d.Tla || num)}" aria-pressed="${!mapHidden.has(d.Tla || num)}" aria-label="${mapHidden.has(d.Tla || num) ? 'Show' : 'Hide'} ${esc(d.Tla || num)} on the map">${mapHidden.has(d.Tla || num) ? EYE_OFF : EYE_ON}</button></td>
       <td class="c-pos">${esc(pg ? pg[num].pos : l.Position || '')}</td>
       <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span>${penBadge(num)}<span class="team">${esc(d.TeamName || '')}</span></span></td>
       <td class="c-gap${leadCls(gap)}">${out ? `<span class="badge out">${l.KnockedOut && q ? esc(koPart(l, q)) : 'OUT'}</span>` : esc(gap)}</td>
       <td class="c-int${leadCls(int)}">${out ? '' : esc(int)}</td>
       <td class="c-last ${lastCls}">${esc(last.Value || '')}</td>
-      <td class="c-best">${esc(best || '')}</td>
+      <td class="c-best${bestCls}"${bestCls ? ' title="Fastest lap"' : ''}>${esc(best || '')}</td>
       <td class="c-sec">${secCell(secs[0])}</td>
       <td class="c-sec">${secCell(secs[1])}</td>
       <td class="c-sec">${secCell(secs[2])}</td>
