@@ -1257,6 +1257,8 @@ function renderInsights() {
   if (tab === 'strategy') renderStrategy();
   else if (tab === 'trace') renderTrace();
   else if (tab === 'pits') renderPits();
+  else if (tab === 'battles') renderBattles();
+  else if (tab === 'pace') renderPace();
   else if (tab === 'speeds') renderSpeeds();
   else if (tab === 'h2h') renderH2H();
   else if (tab === 'standings') renderStandings();
@@ -1569,6 +1571,139 @@ function renderPits() {
     </tr>`).join('')}</tbody></table></div>
     <p class="hint chart-note">Pit lane: time from pit entry to pit exit; the quickest is purple. Newest first.</p>`;
   setBody(key, '', html);
+}
+
+// ---------- battles ----------
+// Race: every car within a second of the car ahead, and whether the gap is shrinking.
+// The trend comes from the gaps to the leader logged at the end of each lap.
+const BATTLE_S = 1.0;
+const parseIntv = (v) => { const m = /^\+?(\d+(?:\.\d+)?)$/.exec(String(v ?? '').trim()); return m ? Number(m[1]) : null; };
+
+function renderBattles() {
+  if (!isRaceSession()) return setBody('bt|none', '', '<div class="empty">Battles are tracked in races and sprints.</div>');
+  const order = runningOrder().filter(([, l]) => !(l.Retired || l.Stopped));
+  const app = state.TimingAppData?.Lines || {};
+  const h = shownHist().filter((e) => e.k === 'lap');
+  const gapAt = {}; // num -> lap -> gap to leader
+  for (const e of h) if (e.gap != null) (gapAt[e.n] ||= {})[e.lap] = e.gap;
+  const fnum = favNum();
+  const battles = [];
+  for (let i = 1; i < order.length; i++) {
+    const [num, l] = order[i], [ahead, la] = order[i - 1];
+    const iv = parseIntv(l.IntervalToPositionAhead?.Value);
+    if (iv == null || iv > BATTLE_S || l.InPit || la.InPit) continue;
+    // Interval at each lap end both cars have, newest last.
+    const laps = Object.keys(gapAt[num] || {}).map(Number).filter((k) => gapAt[ahead]?.[k] != null).sort((a, b) => a - b);
+    const series = laps.map((k) => gapAt[num][k] - gapAt[ahead][k]);
+    const last = series.slice(-4);
+    const rate = last.length >= 2 ? (last[last.length - 1] - last[0]) / (last.length - 1) : null;
+    let together = 0;
+    for (let k = series.length - 1; k >= 0 && series[k] <= BATTLE_S; k--) together++;
+    const stint = (n) => { const st = list(app[n]?.Stints); const x = st[st.length - 1]; return x ? { c: String(x.Compound || '').toUpperCase(), age: x.TotalLaps } : null; };
+    battles.push({ num, ahead, pos: Number(l.Position), iv, rate, together, me: stint(num), them: stint(ahead) });
+  }
+  const key = `bt|${JSON.stringify(battles)}|${fnum}`;
+  if (!battles.length) return setBody(key, '', `<div class="empty">No cars within ${BATTLE_S.toFixed(0)} second of each other right now.</div>`);
+  const trend = (r) => r == null ? '<span class="bt-trend">–</span>'
+    : r < -0.05 ? `<span class="bt-trend closing">closing ${Math.abs(r).toFixed(2)} s/lap</span>`
+    : r > 0.05 ? `<span class="bt-trend opening">dropping back ${r.toFixed(2)} s/lap</span>`
+    : '<span class="bt-trend holding">holding</span>';
+  const tyre = (t) => t ? `${tyreChip(t.c)}<span class="muted bt-age">${esc(t.age ?? '')}</span>` : '';
+  const drv = (n) => `<span class="drv"><span class="bar" style="background:${colorOf(n)}"></span><span class="tla">${esc(tlaOf(n))}</span></span>`;
+  const html = `<div class="bt-list">${battles.map((b) => `<div class="bt${b.num === fnum || b.ahead === fnum ? ' fav' : ''}">
+      <span class="bt-pos">P${b.pos}</span>
+      <span class="bt-side">${drv(b.num)}${tyre(b.me)}</span>
+      <span class="bt-gap"><b>${b.iv.toFixed(3)}</b>${trend(b.rate)}</span>
+      <span class="bt-side right">${tyre(b.them)}${drv(b.ahead)}</span>
+      <span class="bt-laps muted">${b.together > 1 ? `${b.together} laps` : ''}</span>
+    </div>`).join('')}</div>
+    <p class="hint chart-note">Chaser on the left, car ahead on the right, with tyre and tyre age. The trend is how the gap changed per lap over the last few laps; "laps" is how long they've been within a second.</p>`;
+  setBody(key, '', html);
+}
+
+// ---------- stint pace ----------
+// Average of clean laps per tyre stint, and how lap times drift as the stint goes on.
+// Left out: lap 1, out and in laps around pit stops, laps under SC, VSC or red flag,
+// and laps more than 7% slower than the driver's median in that stint (traffic, cool-down).
+function cleanStints() {
+  const h = shownHist();
+  const app = state.TimingAppData?.Lines || {};
+  const race = isRaceSession();
+  // Laps (by leader lap) touched by a neutralisation.
+  const dirty = new Set();
+  let cur = '1', from = 0;
+  const mark = (a, b) => { for (let k = a; k <= b + 1; k++) dirty.add(k); };
+  for (const e of h.filter((x) => x.k === 'ts')) {
+    if (['4', '5', '6', '7'].includes(cur)) mark(from, e.lap || from);
+    cur = e.status; from = e.lap || 0;
+  }
+  if (['4', '5', '6', '7'].includes(cur)) mark(from, 999);
+  const pitLaps = {};
+  for (const e of h) if (e.k === 'pit') (pitLaps[e.n] ||= new Set()).add(e.lap);
+  const laps = {};
+  for (const e of h) if (e.k === 'lap' && e.time) (laps[e.n] ||= []).push(e);
+  const out = [];
+  for (const [num, ls] of Object.entries(laps)) {
+    const ranges = stintRanges(app[num]?.Stints);
+    if (!ranges.length) continue;
+    ranges.forEach((r, si) => {
+      const inStint = ls.filter((e) => e.lap > r.from && e.lap <= r.to);
+      let pts = inStint.filter((e) => {
+        if (race && e.lap <= 1) return false;
+        if (e.lap === r.from + 1) return false; // out lap
+        if (si < ranges.length - 1 && e.lap === r.to) return false; // in lap
+        if (pitLaps[num]?.has(e.lap) || pitLaps[num]?.has(e.lap - 1)) return false;
+        if (race && dirty.has(e.lap)) return false;
+        return true;
+      }).map((e) => ({ lap: e.lap, t: parseLap(e.time) })).filter((p) => p.t > 0);
+      if (pts.length < 3) return;
+      const sorted = pts.map((p) => p.t).sort((a, b) => a - b);
+      const med = sorted[Math.floor(sorted.length / 2)];
+      pts = pts.filter((p) => p.t <= med * 1.07);
+      if (pts.length < 3) return;
+      const n = pts.length;
+      const avg = pts.reduce((a, p) => a + p.t, 0) / n;
+      let slope = null;
+      if (n >= 4) {
+        const mx = pts.reduce((a, p) => a + p.lap, 0) / n;
+        let num2 = 0, den = 0;
+        for (const p of pts) { num2 += (p.lap - mx) * (p.t - avg); den += (p.lap - mx) ** 2; }
+        slope = den ? num2 / den : null;
+      }
+      out.push({ num, stint: si + 1, compound: r.compound, fresh: r.fresh, laps: n, of: r.to - r.from, avg, best: sorted[0], slope });
+    });
+  }
+  return out;
+}
+
+const fmtLap = (t) => (t >= 60 ? `${Math.floor(t / 60)}:${(t % 60).toFixed(3).padStart(6, '0')}` : t.toFixed(3));
+function renderPace() {
+  if (qInfo()) return setBody('pace|q', '', '<div class="empty">Stint pace is shown for practice, sprints and races.</div>');
+  const rows = cleanStints();
+  const order = runningOrder().map(([n]) => n);
+  const fnum = favNum();
+  const sortBy = store.get('paceSort', 'order');
+  const key = `pace|${JSON.stringify(rows)}|${fnum}|${sortBy}|${order.join(',')}`;
+  const tools = `<div class="seg-row"><button type="button" class="chip-btn${sortBy === 'order' ? ' on' : ''}" data-pace-sort="order">Running order</button><button type="button" class="chip-btn${sortBy === 'pace' ? ' on' : ''}" data-pace-sort="pace">Quickest first</button></div>`;
+  if (!rows.length) return setBody(key, tools, '<div class="empty">Stint pace appears after a driver has done three clean laps on a set of tyres.</div>');
+  const bestBy = {};
+  for (const r of rows) if (!(r.avg >= bestBy[r.compound])) bestBy[r.compound] = r.avg;
+  const pos = (n) => { const i = order.indexOf(n); return i < 0 ? 99 : i; };
+  rows.sort(sortBy === 'pace' ? (a, b) => a.avg - b.avg : (a, b) => pos(a.num) - pos(b.num) || a.stint - b.stint);
+  const trend = (s) => s == null ? '<span class="muted">–</span>'
+    : `<span class="${s > 0.06 ? 'pace-deg' : s < -0.02 ? 'pace-gain' : 'muted'}">${s >= 0 ? '+' : '−'}${Math.abs(s).toFixed(2)}</span>`;
+  const html = `<div class="table-wrap"><table class="tbl pace">
+    <thead><tr><th>Driver</th><th>Tyre</th><th class="num-c">Laps</th><th class="num-c">Average</th><th class="num-c hide-sm">Best</th><th class="num-c">s/lap</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr class="${r.num === fnum ? 'fav' : ''}">
+      <td><span class="drv"><span class="bar" style="background:${colorOf(r.num)}"></span><span class="tla">${esc(tlaOf(r.num))}</span>${r.stint > 1 ? `<span class="muted pace-st">stint ${r.stint}</span>` : ''}</span></td>
+      <td>${tyreChip(r.compound)}${r.fresh ? '' : '<span class="used">used</span>'}</td>
+      <td class="num-c muted">${r.laps}<span class="pace-of">/${r.of}</span></td>
+      <td class="num-c b${r.avg === bestBy[r.compound] ? ' t-ob' : ''}">${fmtLap(r.avg)}</td>
+      <td class="num-c hide-sm">${fmtLap(r.best)}</td>
+      <td class="num-c">${trend(r.slope)}</td>
+    </tr>`).join('')}</tbody></table></div>
+    <p class="hint chart-note">Average of clean laps on each set (no lap 1, out or in laps, safety car laps, or laps 7% off the driver's usual pace). Purple: quickest average on that compound. s/lap: how much slower each lap got as the stint went on; fuel burning off makes laps quicker, so real tyre wear is a bit more than shown.</p>`;
+  setBody(key, tools, html);
 }
 
 // ---------- speed traps ----------
@@ -1962,6 +2097,8 @@ document.querySelectorAll('#insTabs [data-tab]').forEach((b) => b.addEventListen
   insTab = b.dataset.tab; store.set('insTab', insTab); insKey = ''; hideTip(); dirty = true;
 }));
 $('insCard').addEventListener('click', (e) => {
+  const ps = e.target.closest('[data-pace-sort]');
+  if (ps) { store.set('paceSort', ps.dataset.paceSort); insKey = ''; dirty = true; return; }
   const t = e.target.closest('[data-trace-filter],[data-trace-focus],[data-stand],[data-res-kind],[data-speed-sort]');
   if (!t) return;
   if (t.dataset.speedSort) { speedSort = t.dataset.speedSort; store.set('speedSort', speedSort); }

@@ -23,6 +23,10 @@ second screen next to the broadcast.
 - In races and sprints, a green box around a driver who just moved up the order and an orange
   one around a driver who dropped back; each lasts 8 seconds
 - Tyre compound, tyre age and pit stops
+- Battles (races and sprints): every car within a second of the car ahead, whether the gap is
+  closing or growing per lap, both cars' tyres, and how many laps they've been together
+- Stint pace: average of clean laps on each set of tyres, best lap, and how lap times drift
+  through the stint (lap 1, out/in laps, safety car laps and slow outliers left out)
 - Penalties from the stewards (time, drive-through, stop-and-go, grid drops): a badge next to the
   driver and a list at the top of race control, marked served when F1 confirms it
 - Race control messages
