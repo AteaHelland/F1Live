@@ -72,7 +72,7 @@ short `info.json`. The ⟲ button in the header lists them by season and weekend
 back at it, and "Back to live" returns to the feed. The address keeps the session
 (`#s=2026/R20 - Interlagos/P1`), so it can be bookmarked.
 
-**Replay.** Everything F1 sends during a session is also recorded to `feed.jsonl.gz` in its
+**Replay.** Everything F1 sends during a session is also recorded to `feed.jsonl.gz` (plus `feed-2…` after a restart) in its
 folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeline to drag, and
 1×, 2×, 5× or 10× speed. The whole page plays along (tower, map, telemetry, race control, radio,
 charts). A session still running can be replayed from its start too. Recordings are kept for
