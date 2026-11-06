@@ -64,7 +64,7 @@ const shownNow = () => replay ? replay.pos : Date.now() + offset - delay * 1000;
 function connect() {
   if (es) es.close();
   es = new EventSource('api/stream');
-  es.addEventListener('sessions', () => { sessionList = null; if ($('sessions').open) openSessions(); });
+  es.addEventListener('sessions', () => { sessionList = null; dirty = true; if ($('sessions').open) openSessions(); });
   es.addEventListener('init', (e) => {
     const d = JSON.parse(e.data);
     offset = d.serverNow - Date.now();
@@ -92,11 +92,110 @@ function drain() {
   while (queue.length && queue[0].t <= cutoff) {
     const item = queue.shift();
     if (item.topic === 'CarData') addTelemetry(item.data);
+    if (item.kind === 'u' && ACTIVITY_TOPICS.has(item.topic) && item.t > lastActivity) lastActivity = item.t;
     state = applyItem(state, item);
     n++;
   }
   if (n) dirty = true;
 }
+
+// ---------- front page ----------
+// Between sessions the page shows the next session and the saved sessions to replay instead
+// of an empty timing screen: from 15 minutes after the data stops until 30 minutes before
+// the next session starts (a session running over its slot keeps the dashboard up).
+const ACTIVITY_TOPICS = new Set(['TimingData', 'Position', 'CarData', 'TimingAppData', 'RaceControlMessages']);
+const QUIET_AFTER = 15 * 60000, OPEN_BEFORE = 30 * 60000;
+let lastActivity = 0;        // server time of the last timing or car data
+let homeDismissed = false;   // "Open the full dashboard" until the next session comes round
+let homeHtml = '';
+let homeAllWeekends = false;
+
+function sessionActive() {
+  if (status?.demo) return true;
+  const now = Date.now();
+  const last = Math.max(lastActivity, status?.lastActivityAt || 0);
+  if (last && now + offset - last < QUIET_AFTER) return true;
+  for (const s of schedule?.next?.sessions || []) {
+    const start = Date.parse(s.start), end = start + s.minutes * 60000;
+    if (now >= start - OPEN_BEFORE && now < end) return true;
+  }
+  return false;
+}
+const homeMode = () => !viewing && !homeDismissed && !document.body.classList.contains('editing') && !sessionActive();
+
+function renderHome() {
+  if (sessionActive()) homeDismissed = false; // next idle spell starts on the front page again
+  const on = homeMode();
+  document.body.classList.toggle('home-mode', on);
+  $('home').hidden = !on;
+  if (!on) return;
+  if (!sessionList && !sessionsLoading) loadSessionList();
+
+  const now = Date.now();
+  const wk = schedule?.next;
+  const rows = (wk?.sessions || []).map((s) => {
+    const start = Date.parse(s.start);
+    return { ...s, startMs: start, done: now > start + s.minutes * 60000 };
+  });
+  const next = rows.find((r) => !r.done && r.startMs > now);
+  const hero = !wk ? `<div class="empty">${schedule?.error ? `Couldn't load the calendar (${esc(schedule.error)}).` : 'Loading the calendar…'}</div>`
+    : `<div class="hm-label">${next ? 'Next session' : 'Race weekend'}</div>
+      <div class="hm-session">${esc(next?.name || wk.name)}</div>
+      <div class="hm-gp">${esc(wk.name)}${wk.circuit ? ` · ${esc(wk.circuit)}` : ''}</div>
+      ${next ? `<div class="hm-when">${esc(fmtDay.format(new Date(next.startMs)))} · ${esc(fmtTime.format(new Date(next.startMs)))}</div>
+      <div class="hm-count">in <b>${esc(dur(next.startMs - now))}</b></div>` : ''}
+      <ul class="wk-sessions hm-week">${rows.map((r) => `
+        <li class="${r.done ? 'done' : r === next ? 'next' : 'todo'}${r.key === 'Race' ? ' race' : ''}">
+          <span class="wk-day">${fmtDay.format(new Date(r.startMs))}</span>
+          <span class="wk-sname">${esc(r.name)}</span>
+          <span class="wk-time">${fmtTime.format(new Date(r.startMs))}</span>
+        </li>`).join('')}</ul>
+      <p class="hint">Live timing opens here 30 minutes before the start.</p>`;
+
+  // Saved sessions by weekend, newest weekend first, sessions in running order.
+  const weekends = [];
+  for (const s of sessionList || []) {
+    const k = `${s.year}|${s.round}|${s.circuit}`;
+    let w = weekends.find((x) => x.k === k);
+    if (!w) weekends.push(w = { k, s, list: [] });
+    w.list.push(s);
+  }
+  const shown = homeAllWeekends ? weekends : weekends.slice(0, 4);
+  const replays = !sessionList ? '<div class="empty small">Loading…</div>'
+    : !weekends.length ? '<div class="empty small">Nothing saved yet. Every session is saved here as it runs.</div>'
+    : shown.map((w) => `<div class="hm-wk">
+        <div class="hm-wk-head"><b>${esc(w.s.year)} · ${esc(weekendLabel(w.s))}</b><span>${esc(w.s.meeting || '')}</span></div>
+        <div class="hm-tiles">${w.list.slice().reverse().map((s) => `
+          <button type="button" class="hm-tile${s.recorded ? ' rec' : ''}" data-ses="${esc(s.id)}">
+            <span class="hm-code">${esc(s.code)}</span>
+            <span class="hm-name">${esc(s.name)}</span>
+            <span class="hm-meta">${s.start ? esc(fmtDay.format(new Date(s.start))) : ''}</span>
+            <span class="hm-act${s.recorded ? ' can-play' : ''}">${s.recorded ? '▶ Replay' : 'Final results'}</span>
+          </button>`).join('')}</div>
+      </div>`).join('') + (weekends.length > shown.length ? `<button type="button" class="btn sm hm-more" data-home-more>Show ${weekends.length - shown.length} older weekend${weekends.length - shown.length === 1 ? '' : 's'}</button>` : '');
+
+  const html = `<section class="card hm-hero">${hero}</section>
+    <section class="card hm-replays"><div class="card-head"><h2>Saved sessions</h2><button type="button" class="btn sm" data-home-dash>Open the full dashboard</button></div>
+      <div class="hm-replay-body">${replays}</div></section>`;
+  if (html !== homeHtml) { homeHtml = html; $('home').innerHTML = html; }
+}
+
+let sessionsLoading = false;
+async function loadSessionList() {
+  sessionsLoading = true;
+  try { sessionList = await (await fetch('api/sessions', { cache: 'no-store' })).json(); }
+  catch { sessionList = []; }
+  sessionsLoading = false;
+  dirty = true;
+}
+
+$('home').addEventListener('click', (e) => {
+  const ses = e.target.closest('[data-ses]');
+  if (ses) { openArchive(ses.dataset.ses); return; }
+  if (e.target.closest('[data-home-dash]')) { homeDismissed = true; dirty = true; return; }
+  if (e.target.closest('[data-home-more]')) { homeAllWeekends = true; dirty = true; }
+});
+document.querySelector('.brand')?.addEventListener('click', () => { if (viewing) backToLive(); homeDismissed = false; dirty = true; });
 
 // ---------- saved sessions ----------
 // Opening one swaps the page over to that session's data; the live feed is let go until
@@ -2066,7 +2165,7 @@ $('sessionsBtn').addEventListener('click', openSessions);
 $('sessions').addEventListener('click', (e) => {
   const b = e.target.closest('[data-ses]');
   if (b) { $('sessions').close(); openArchive(b.dataset.ses); return; }
-  if (e.target.closest('#sessionsLive')) { $('sessions').close(); if (viewing) backToLive(); }
+  if (e.target.closest('#sessionsLive')) { $('sessions').close(); homeDismissed = true; dirty = true; if (viewing) backToLive(); }
 });
 $('nextInfo').addEventListener('click', (e) => { if (e.target.closest('[data-back-live]')) backToLive(); });
 $('settings').addEventListener('click', (e) => {
@@ -2381,7 +2480,7 @@ applyLayout();
 // ---------- loop ----------
 // Each part renders on its own: an error in one card is reported and the rest keep updating.
 const PARTS = [
-  ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
+  ['front page', renderHome], ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
   ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
   ['insights', renderInsights], ['replay', renderReplay], ['settings', () => { if ($('settings').open) renderSettings(); }],
 ];

@@ -618,3 +618,36 @@ body.editing { padding-bottom: 80px; }
 .pace-deg { color: var(--orange); font-weight: 600; } .pace-gain { color: var(--green); font-weight: 600; }
 .replay-bar.rp-failed .rp-time { color: var(--orange); white-space: normal; }
 .replay-bar.rp-failed input[type=range], .replay-bar.rp-failed .rp-speed { display: none; }
+
+/* front page between sessions */
+.home { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; padding: 0 16px 24px; align-items: start; }
+.home[hidden], body.home-mode main.grid, body.home-mode #layoutBtn, body.home-mode .flagbar { display: none; }
+.hm-hero { padding: 20px; }
+.hm-label { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
+.hm-session { font-size: 34px; font-weight: 900; line-height: 1.1; margin-top: 6px; }
+.hm-gp { color: var(--muted); margin-top: 2px; }
+.hm-when { margin-top: 14px; font-size: 18px; font-weight: 700; }
+.hm-count { margin-top: 4px; font-size: 22px; color: var(--muted); }
+.hm-count b { color: var(--text); font-variant-numeric: tabular-nums; }
+.hm-week { margin-top: 16px; }
+.hm-hero .hint { margin-top: 12px; }
+.hm-replay-body { padding: 4px 16px 16px; }
+.hm-wk { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.hm-wk:last-of-type { border-bottom: 0; }
+.hm-wk-head { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; margin-bottom: 10px; }
+.hm-wk-head span { color: var(--muted); font-size: 13px; }
+.hm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.hm-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 10px; cursor: pointer; text-align: left; font: inherit; }
+.hm-tile:hover { border-color: var(--muted); }
+.hm-tile.rec { border-color: rgba(225, 6, 0, .45); }
+.hm-code { font-size: 20px; font-weight: 900; line-height: 1; }
+.hm-name { font-size: 13px; }
+.hm-meta { font-size: 12px; color: var(--muted); }
+.hm-act { font-size: 12px; font-weight: 700; color: var(--muted); margin-top: 4px; }
+.hm-act.can-play { color: var(--red); }
+body.home-mode .session { display: none; }
+body.home-mode .brand { display: flex !important; }
+.hm-more { margin-top: 12px; }
+.brand { cursor: pointer; }
+@media (max-width: 760px) { .home { grid-template-columns: minmax(0, 1fr); } .hm-session { font-size: 28px; } }
+body.home-mode .top-mid { visibility: hidden; }

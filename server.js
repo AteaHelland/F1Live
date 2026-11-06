@@ -101,6 +101,10 @@ function broadcast(event, data) {
 // nothing of it (drivers, laps, messages) carries over.
 let restartedFor = null;
 let listedKey = null;
+// When timing or car data last arrived: the page shows its front page once a session has
+// been quiet for a while.
+const ACTIVITY_TOPICS = new Set(['TimingData', 'Position', 'CarData', 'TimingAppData', 'RaceControlMessages']);
+let lastActivityAt = 0;
 function push(item) {
   const prevKey = sessionKey(latest);
   if (item.kind === 'u' && item.topic === 'SessionInfo' && prevKey) {
@@ -122,6 +126,7 @@ function push(item) {
   items.push(item);
   latest = applyItem(latest, item);
   if (recorder) recorder.record(item, latest);
+  if (item.kind === 'u' && ACTIVITY_TOPICS.has(item.topic)) lastActivityAt = item.t;
   // A new session shows up in the picker within seconds, not at the next minute's save.
   const key = sessionKey(latest);
   if (key && key !== listedKey && !DEMO) {
@@ -174,7 +179,7 @@ const schedule = new Schedule({ dataDir: DATA });
 let windowOpen = false;
 
 function statusView() {
-  return { build: BUILD, demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
+  return { build: BUILD, lastActivityAt, demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
 }
 
 async function tick() {
