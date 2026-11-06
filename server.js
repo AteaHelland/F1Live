@@ -14,6 +14,8 @@ import { History } from './lib/history.js';
 import { Jolpica } from './lib/jolpica.js';
 import { buildIcs } from './lib/ics.js';
 import { Archive } from './lib/archive.js';
+import { Recorder, Player } from './lib/recorder.js';
+import zlib from 'node:zlib';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -88,6 +90,7 @@ function broadcast(event, data) {
 // A new session starts with a clean slate: the one before is saved to its own folder and
 // nothing of it (drivers, laps, messages) carries over.
 let restartedFor = null;
+let listedKey = null;
 function push(item) {
   const prevKey = sessionKey(latest);
   if (item.kind === 'u' && item.topic === 'SessionInfo' && prevKey) {
@@ -108,6 +111,13 @@ function push(item) {
   }
   items.push(item);
   latest = applyItem(latest, item);
+  if (recorder) recorder.record(item, latest);
+  // A new session shows up in the picker within seconds, not at the next minute's save.
+  const key = sessionKey(latest);
+  if (key && key !== listedKey && !DEMO) {
+    listedKey = key;
+    setTimeout(() => { if (sessionKey(latest) === key) archiveNow(JSON.stringify(latest), JSON.stringify(history)); }, 5000);
+  }
   dirty = true;
   broadcast(null, item);
   for (const e of history.observe(item, latest)) broadcast('hist', e);
@@ -115,6 +125,13 @@ function push(item) {
 
 // ---------- session folders (data/sessions/<year>/R<round> - <circuit>/<session>) ----------
 const archive = new Archive({ dataDir: DATA, getRaces: () => schedule.races });
+// Recording for replay: RECORD=0 turns it off; RECORD_WEEKENDS is how many weekends keep their
+// recordings (0 = all). Older sessions keep their folder, just without the recording.
+const recorder = DEMO || process.env.RECORD === '0' ? null : new Recorder({
+  archive, getRaces: () => schedule.races, log,
+  keepWeekends: Math.max(0, Number(process.env.RECORD_WEEKENDS ?? 3) || 0),
+});
+const player = new Player({ archive });
 function archiveNow(stateJson, historyJson) {
   return archive.save(stateJson, historyJson)
     .then((dir) => { if (dir) broadcast('sessions', { saved: dir.split(path.sep).join('/') }); return dir; })
@@ -218,6 +235,16 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/schedule') return json(res, 200, DEMO ? demoSchedule() : schedule.view());
     if (url.pathname === '/api/state') return json(res, 200, latest);
     if (url.pathname === '/api/sessions') return json(res, 200, await archive.list());
+    if (url.pathname === '/api/replay') {
+      const t = Number(url.searchParams.get('t')) || 0;
+      const span = Math.min(600000, Math.max(10000, Number(url.searchParams.get('span')) || 120000));
+      let body;
+      try { body = await player.window(url.searchParams.get('id'), t, span, url.searchParams.get('itemsOnly') === '1'); }
+      catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'no recording for this session' : e.message }); }
+      const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
+      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(gz ? { 'Content-Encoding': 'gzip' } : {}) });
+      return res.end(gz ? zlib.gzipSync(body) : body);
+    }
     if (url.pathname === '/api/session') {
       try { return json(res, 200, await archive.load(url.searchParams.get('id'))); }
       catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'session not found' : e.message }); }
@@ -315,6 +342,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
       await fs.writeFile(LAST_FILE, st);
       await fs.writeFile(HISTORY_FILE, hi);
       if (!DEMO) await archiveNow(st, hi);
+      if (recorder) await recorder.close();
     } catch {}
     process.exit(0);
   });

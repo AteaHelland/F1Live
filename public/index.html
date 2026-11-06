@@ -42,6 +42,19 @@
     </div>
   </header>
 
+  <div id="replayBar" class="replay-bar" hidden>
+    <button type="button" id="rpPlay" class="icon-btn rp-play" aria-label="Play">▶</button>
+    <span id="rpTime" class="rp-time">0:00:00</span>
+    <input id="rpSeek" type="range" min="0" max="1" value="1" aria-label="Position in the session">
+    <span id="rpEnd" class="rp-time">0:00:00</span>
+    <span class="rp-speed">
+      <button type="button" class="chip-btn" data-rp-speed="1">1×</button>
+      <button type="button" class="chip-btn" data-rp-speed="2">2×</button>
+      <button type="button" class="chip-btn" data-rp-speed="5">5×</button>
+      <button type="button" class="chip-btn" data-rp-speed="10">10×</button>
+    </span>
+  </div>
+
   <main class="grid">
     <div class="col col-main">
       <section class="card tower-card" id="towerCard">
@@ -140,7 +153,7 @@
       <div class="card-head"><h2>Sessions</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
       <div class="field">
         <button type="button" id="sessionsLive" class="chip-btn ses-live">● Live feed</button>
-        <span class="hint">Every session is saved in its own folder as it runs. Pick one to look back at it; its drivers and data stay separate from the live feed.</span>
+        <span class="hint">Every session is saved in its own folder as it runs. Pick one to look back at it; its drivers and data stay separate from the live feed. Sessions marked ● were recorded and can be replayed.</span>
       </div>
       <div id="sessionsList" class="ses-list"></div>
     </form>

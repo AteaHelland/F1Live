@@ -15,5 +15,7 @@ services:
       # Shared secret for changing the token (set it in .env next to this file).
       # Leave it empty and token changes stay open to anyone who can reach the page.
       - F1LIVE_SECRET=${F1LIVE_SECRET:-}
+      # Recording for replay: weekends that keep their recordings (0 = keep all), RECORD=0 = off.
+      - RECORD_WEEKENDS=3
       # Optional: F1 TV token here instead of pasting it on the page.
       # - F1TV_TOKEN=

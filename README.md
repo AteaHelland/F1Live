@@ -68,6 +68,13 @@ short `info.json`. The ⟲ button in the header lists them by season and weekend
 back at it, and "Back to live" returns to the feed. The address keeps the session
 (`#s=2026/R20 - Interlagos/P1`), so it can be bookmarked.
 
+**Replay.** Everything F1 sends during a session is also recorded to `feed.jsonl.gz` in its
+folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeline to drag, and
+1×, 2×, 5× or 10× speed. The whole page plays along (tower, map, telemetry, race control, radio,
+charts). A session still running can be replayed from its start too. Recordings are kept for
+the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
+for looking back, just without the replay. `RECORD=0` turns recording off.
+
 A new session always starts from a clean slate: when F1 moves on to the next session, the one
 before is saved to its folder, the page is cleared, and the dashboard reconnects for a full
 snapshot of the new one. Drivers who only ran in practice don't carry over into the next session.
@@ -168,6 +175,8 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `BUFFER_SECONDS` | `150` | How much recent data the server keeps, which caps the broadcast delay |
 | `F1LIVE_SECRET` | – | Required to change or remove the token; set it in `.env` (see above) |
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
+| `RECORD_WEEKENDS` | `3` | Race weekends whose sessions keep their replay recording (`0` = all) |
+| `RECORD` | `1` | `0` turns recording for replay off |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, saved sessions and token are kept |
 | `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
 | `DEMO_SESSION` | `race` | In demo mode, `quali` plays a qualifying session instead of a race |

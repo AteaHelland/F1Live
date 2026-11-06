@@ -587,3 +587,12 @@ body.editing { padding-bottom: 80px; }
 /* race: who just moved up or down the order */
 .tower tr.up .drv, .tower tr.down .drv { outline: 2px solid var(--green); outline-offset: 3px; border-radius: 5px; }
 .tower tr.down .drv { outline-color: var(--orange); }
+
+/* replay */
+.replay-bar { display: flex; align-items: center; gap: 10px; margin: 0 16px 12px; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; flex-wrap: wrap; }
+.replay-bar[hidden] { display: none; }
+.replay-bar input[type=range] { flex: 1 1 200px; min-width: 120px; }
+.rp-play { color: var(--text); font-size: 14px; }
+.rp-time { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); white-space: nowrap; }
+.rp-speed { display: flex; gap: 4px; }
+.chip-btn.rec::after { content: ' ●'; color: var(--red); font-size: 10px; vertical-align: 1px; }

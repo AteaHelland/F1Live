@@ -44,8 +44,9 @@ const resCache = new Map();
 let viewing = null;          // a saved session being looked at instead of the live feed
 let sessionList = null;      // saved sessions, for the picker
 
-// Server time minus the broadcast delay: the moment the page is "showing".
-const shownNow = () => Date.now() + offset - delay * 1000;
+// The moment the page is "showing": server time minus the broadcast delay, or the replay clock.
+let replay = null; // { id, start, end, pos, until, playing, speed, wall, loading, gen }
+const shownNow = () => replay ? replay.pos : Date.now() + offset - delay * 1000;
 
 // ---------- data stream ----------
 function connect() {
@@ -108,12 +109,117 @@ async function openArchive(id) {
   }
   if (es) { es.close(); es = null; }
   viewing = { id: d.id, ...d.info };
+  replay = null;
   state = d.state || {};
   hist = d.history?.entries || [];
   resetView();
   window.history.replaceState(null, '', `#s=${encodeURIComponent(d.id)}`);
+  if (d.info.recorded) {
+    // Find out how long the recording is; until play or a seek, the page shows the end.
+    try {
+      const r = await (await fetch(`api/replay?id=${encodeURIComponent(d.id)}&t=0&span=10000&itemsOnly=1`)).json();
+      if (r.start && viewing?.id === d.id) {
+        replay = { id: d.id, start: r.start, end: r.end, pos: r.end, until: r.end, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true };
+        dirty = true;
+      }
+    } catch {}
+  }
 }
+
+// ---------- replay ----------
+// Plays a recorded session through the same path as the live feed: the server sends the
+// state at a moment plus the items after it, and drain() applies them as the clock passes.
+async function replaySeek(t) {
+  if (!replay) return;
+  const rp = replay, gen = ++rp.gen;
+  rp.loading = true;
+  let d;
+  try { d = await (await fetch(`api/replay?id=${encodeURIComponent(rp.id)}&t=${Math.round(t)}&span=120000`)).json(); }
+  catch { rp.loading = false; return; }
+  if (replay !== rp || gen !== rp.gen) return;
+  resetView();
+  state = d.state || {};
+  queue = d.items || [];
+  rp.pos = d.t;
+  rp.until = d.until;
+  rp.atEnd = false;
+  rp.loading = false;
+  rp.wall = performance.now();
+  dirty = true;
+}
+async function replayMore() {
+  const rp = replay, gen = rp.gen;
+  rp.loading = true;
+  try {
+    const span = Math.max(120000, 60000 * rp.speed);
+    const d = await (await fetch(`api/replay?id=${encodeURIComponent(rp.id)}&t=${Math.round(rp.until)}&span=${span}&itemsOnly=1`)).json();
+    if (replay !== rp || gen !== rp.gen) return;
+    queue.push(...(d.items || []));
+    rp.until = d.until;
+    rp.end = d.end; // a session still being recorded grows
+  } catch {}
+  if (replay === rp && gen === rp.gen) rp.loading = false;
+}
+function replayTick() {
+  const rp = replay;
+  if (!rp) return;
+  const now = performance.now();
+  if (rp.playing && !rp.loading) {
+    rp.pos = Math.min(rp.end, rp.pos + (now - rp.wall) * rp.speed);
+    if (rp.until < rp.end) rp.pos = Math.min(rp.pos, rp.until); // wait for the next part
+    if (rp.pos >= rp.end) rp.playing = false;
+    dirty = true;
+  }
+  rp.wall = now;
+  if (!rp.loading && !rp.atEnd && rp.until < rp.end && rp.until - rp.pos < 45000 * rp.speed) replayMore();
+}
+setInterval(replayTick, 200);
+function replayPlay() {
+  const rp = replay;
+  if (!rp) return;
+  if (rp.playing) { rp.playing = false; dirty = true; return; }
+  rp.playing = true;
+  rp.wall = performance.now();
+  if (rp.atEnd || rp.pos >= rp.end) replaySeek(rp.start);
+  dirty = true;
+}
+const clockText = (ms) => {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+let rpDragging = false;
+function renderReplay() {
+  const bar = $('replayBar');
+  bar.hidden = !replay;
+  if (!replay) return;
+  const rp = replay;
+  $('rpPlay').textContent = rp.playing ? '❚❚' : '▶';
+  $('rpPlay').setAttribute('aria-label', rp.playing ? 'Pause' : 'Play');
+  const total = Math.max(1, Math.round((rp.end - rp.start) / 1000));
+  const seek = $('rpSeek');
+  seek.max = String(total);
+  if (!rpDragging) seek.value = String(Math.round((rp.pos - rp.start) / 1000));
+  const at = rpDragging ? rp.start + Number(seek.value) * 1000 : rp.pos;
+  $('rpTime').textContent = `${clockText(at - rp.start)} · ${fmtTimeSec.format(new Date(at))}`;
+  $('rpEnd').textContent = clockText(rp.end - rp.start);
+  for (const b of document.querySelectorAll('[data-rp-speed]')) b.classList.toggle('on', Number(b.dataset.rpSpeed) === rp.speed);
+}
+$('rpPlay').addEventListener('click', replayPlay);
+$('rpSeek').addEventListener('input', () => { rpDragging = true; dirty = true; });
+$('rpSeek').addEventListener('change', (e) => {
+  rpDragging = false;
+  if (replay) replaySeek(replay.start + Number(e.target.value) * 1000);
+});
+$('replayBar').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rp-speed]');
+  if (!b || !replay) return;
+  replay.speed = Number(b.dataset.rpSpeed);
+  store.set('rpSpeed', replay.speed);
+  dirty = true;
+});
+
 function backToLive() {
+  replay = null;
   viewing = null;
   state = {};
   hist = [];
@@ -139,7 +245,7 @@ async function openSessions() {
   let year = null, html = '';
   for (const w of weekends.values()) {
     if (w.year !== year) { year = w.year; html += `<div class="ses-year">${esc(year)}</div>`; }
-    const chips = w.sessions.slice().reverse().map((s) => `<button type="button" class="chip-btn${viewing?.id === s.id ? ' on' : ''}" data-ses="${esc(s.id)}" title="${esc(s.name)}${s.start ? ` · ${esc(fmtDay.format(new Date(s.start)))}` : ''}">${esc(s.code)}</button>`).join('');
+    const chips = w.sessions.slice().reverse().map((s) => `<button type="button" class="chip-btn${viewing?.id === s.id ? ' on' : ''}${s.recorded ? ' rec' : ''}" data-ses="${esc(s.id)}" title="${esc(s.name)}${s.recorded ? ' · can be replayed' : ''}${s.start ? ` · ${esc(fmtDay.format(new Date(s.start)))}` : ''}">${esc(s.code)}</button>`).join('');
     html += `<div class="ses-wk"><div class="ses-wk-name"><b>${esc(w.label)}</b><span>${esc(w.meeting || '')}</span></div><div class="ses-chips">${chips}</div></div>`;
   }
   box.innerHTML = html || '<div class="empty small">Nothing saved yet. Each session is saved here as it runs.</div>';
@@ -167,7 +273,8 @@ const carsOnTrack = () => Object.values(state.TimingData?.Lines || {})
 // Qualifying after the clock has run out: the part isn't over until every car is back in the
 // pit lane, because the laps started before the flag still count.
 const qualiRunDown = () => sessionType() === 'Qualifying' && clockSecs() === 0 && carsOnTrack() > 0;
-const isLive = () => !viewing && hasSession() && status?.live?.status === 'connected' &&
+const feedUp = () => (viewing ? Boolean(replay) && !replay.atEnd : status?.live?.status === 'connected');
+const isLive = () => hasSession() && feedUp() &&
   (['Started', 'Aborted'].includes(sessionStatus()) || qualiRunDown());
 
 // ---------- what kind of session this is ----------
@@ -330,7 +437,7 @@ function renderHeader() {
   const chip = $('liveChip');
   const ls = status?.live?.status;
   chip.className = 'chip';
-  if (viewing) chip.textContent = 'Saved session';
+  if (viewing) chip.textContent = !replay || replay.atEnd ? 'Saved session' : replay.playing ? `Replay ${replay.speed}×` : 'Replay paused';
   else if (live) {
     chip.classList.add('live');
     chip.textContent = status?.demo ? 'Demo' : delay ? `Live −${delay}s` : 'Live';
@@ -1256,7 +1363,7 @@ function chartHover(ev) {
 const RACE_PTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
 const SPRINT_PTS = [8, 7, 6, 5, 4, 3, 2, 1];
 function projection() {
-  if (!standings || !isRaceSession()) return null;
+  if (!standings || !isRaceSession() || viewing) return null;
   if (!['Started', 'Aborted', 'Finished', 'Finalised', 'Ends'].includes(sessionStatus())) return null;
   const sprint = /sprint/i.test(sessionName() || '');
   const wk = schedule?.next;
@@ -2085,7 +2192,7 @@ applyLayout();
 const PARTS = [
   ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
   ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
-  ['insights', renderInsights], ['settings', () => { if ($('settings').open) renderSettings(); }],
+  ['insights', renderInsights], ['replay', renderReplay], ['settings', () => { if ($('settings').open) renderSettings(); }],
 ];
 const failing = new Map(); // part -> message
 function render() {
