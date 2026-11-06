@@ -12,7 +12,7 @@ const EMAIL = env('F1_EMAIL');
 const PASSWORD = env('F1_PASSWORD');
 const SECRET = env('F1LIVE_SECRET', '').trim(); // must match the dashboard's F1LIVE_SECRET
 const DASHBOARD_URL = env('DASHBOARD_URL', 'http://192.168.1.250:3080').replace(/\/+$/, '');
-const LOGIN_URL = env('LOGIN_URL', 'https://account.formula1.com/#/en/login');
+const LOGIN_URL = env('LOGIN_URL', 'https://account.formula1.com/#/en/login?redirect=https%3A%2F%2Fwww.formula1.com%2Fen&lead_source=web_f1core&ch=COWB');
 const HOME_URL = env('HOME_URL', 'https://www.formula1.com/');
 const CHECK_HOURS = Number(env('CHECK_HOURS', '6'));
 const RENEW_HOURS = Number(env('RENEW_HOURS', '36'));   // sign in again when less than this is left
@@ -158,8 +158,13 @@ async function signIn(ctx) {
 
     // 2. Sign in with email and password, in a fresh tab so nothing from step 1 interferes.
     if (!EMAIL || !PASSWORD) throw new Error('F1_EMAIL and F1_PASSWORD are not set in .env');
-    log('signing in with email and password');
+    // A saved session that has run out still makes F1 treat the browser as signed in, and the
+    // sign-in page then bounces straight back to formula1.com. Start from no cookies instead.
+    await ctx.clearCookies();
+    log('signing in with email and password (old F1 cookies cleared)');
     page = await ctx.newPage();
+    const hops = [];
+    page.on('framenavigated', (f) => { if (f === page.mainFrame()) hops.push(where(page)); });
     await go(page, LOGIN_URL);
     await sleep(2000);
     await acceptConsent(page);
@@ -171,12 +176,18 @@ async function signIn(ctx) {
       log(`no sign-in form on ${where(page)}; trying the Sign in link on formula1.com`);
       await go(page, HOME_URL);
       await acceptConsent(page);
-      await page.getByRole('link', { name: /sign in|log in/i }).or(page.getByRole('button', { name: /sign in|log in/i })).first().click({ timeout: 15000 }).catch(() => {});
+      // Follow the header's sign-in link by its address (it can be an icon without text).
+      const href = await page.locator('a[href*="account.formula1.com"][href*="login"]').first().getAttribute('href', { timeout: 15000 }).catch(() => null);
+      if (href) await go(page, href);
+      else await page.getByRole('link', { name: /sign in|log in/i }).or(page.getByRole('button', { name: /sign in|log in/i })).first().click({ timeout: 15000 }).catch(() => {});
       await page.waitForLoadState('domcontentloaded', { timeout: 20000 }).catch(() => {});
       await acceptConsent(page);
       email = await findVisible(page, USERNAME, 30000);
     }
-    if (!email) throw new Error(`couldn't find the sign-in form (ended on ${where(page)})`);
+    if (!email) {
+      await fs.writeFile(`${DATA}/last-error.html`, await page.content().catch(() => '')).catch(() => {});
+      throw new Error(`couldn't find the sign-in form (went ${[...new Set(hops)].join(' → ') || where(page)})`);
+    }
     log(`sign-in form on ${where(page)}`);
     await email.fill(EMAIL);
 
@@ -264,6 +275,7 @@ async function check(reason) {
     state.paused = false;
     state.lastResult = `ok, token valid until ${exp ? new Date(exp).toISOString() : 'unknown'}`;
     await fs.rm(`${DATA}/last-error.png`, { force: true });
+    await fs.rm(`${DATA}/last-error.html`, { force: true });
     log(`${reason}: ${state.lastResult}`);
   } catch (e) {
     state.failures += 1;
