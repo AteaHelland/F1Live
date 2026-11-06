@@ -7,6 +7,27 @@ second screen next to the broadcast.
 > Unofficial and not affiliated with Formula 1. It reads F1's public live-timing feed, which
 > can change without notice. Car positions need your own F1 TV subscription.
 
+![Live race: timing tower, track map, telemetry](docs/screenshots/02-race-live.png)
+
+## Screenshots
+
+These show the built-in demo (`DEMO=1`), which uses made-up teams and drivers.
+
+| | |
+|---|---|
+| ![Front page between sessions](docs/screenshots/01-front-page.png) | ![Replaying a saved session](docs/screenshots/08-replay.png) |
+| Front page between sessions: next session and saved sessions to replay | Replay: play/pause, timeline and speed |
+| ![Qualifying](docs/screenshots/07-qualifying.png) | ![Saved sessions](docs/screenshots/09-saved-sessions.png) |
+| Qualifying: knock-out line and purple/green sectors | Saved sessions by weekend (● = can be replayed) |
+| ![Strategy](docs/screenshots/03-strategy.png) | ![Race trace](docs/screenshots/04-race-trace.png) |
+| Tyre strategy | Race trace |
+| ![Battles](docs/screenshots/05-battles.png) | ![Stint pace](docs/screenshots/06-stint-pace.png) |
+| Battles: cars within a second, and whether the gap is closing | Stint pace per set of tyres |
+| ![Phone: front page](docs/screenshots/11-phone-front-page.png) | ![Phone: live race](docs/screenshots/12-phone-live.png) |
+| On a phone: front page | On a phone: live race |
+
+Settings: ![Settings](docs/screenshots/10-settings.png)
+
 ## What it shows
 
 **Between race weekends**
