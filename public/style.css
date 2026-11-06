@@ -616,3 +616,5 @@ body.editing { padding-bottom: 80px; }
 .pace-st { font-size: 11px; margin-left: 2px; }
 .pace-of { color: var(--muted); font-size: 11px; }
 .pace-deg { color: var(--orange); font-weight: 600; } .pace-gain { color: var(--green); font-weight: 600; }
+.replay-bar.rp-failed .rp-time { color: var(--orange); white-space: normal; }
+.replay-bar.rp-failed input[type=range], .replay-bar.rp-failed .rp-speed { display: none; }

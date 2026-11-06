@@ -115,15 +115,45 @@ async function openArchive(id) {
   resetView();
   window.history.replaceState(null, '', `#s=${encodeURIComponent(d.id)}`);
   if (d.info.recorded) {
-    // Find out how long the recording is; until play or a seek, the page shows the end.
-    try {
-      const r = await (await fetch(`api/replay?id=${encodeURIComponent(d.id)}&t=0&span=10000&itemsOnly=1`)).json();
-      if (r.start && viewing?.id === d.id) {
-        replay = { id: d.id, start: r.start, end: r.end, pos: r.end, until: r.end, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true };
-        dirty = true;
-      }
-    } catch {}
+    // The bar shows straight away; until play or a seek, the page shows the end.
+    replay = { id: d.id, start: null, end: null, pos: null, until: null, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true, error: null };
+    dirty = true;
+    replayInit();
   }
+}
+
+// Fetch with the reason spelled out when it fails, so the bar can say what went wrong.
+async function getJson(url) {
+  let res;
+  try { res = await fetch(url, { cache: 'no-store', credentials: 'same-origin' }); }
+  catch (e) { throw new Error(`no answer from the dashboard (${e.message})`); }
+  const text = await res.text();
+  if (res.redirected && !res.url.startsWith(location.origin)) throw new Error('the sign-in (authentik) redirected the request; reload the page');
+  let data;
+  try { data = JSON.parse(text); }
+  catch { throw new Error(`HTTP ${res.status}, not JSON: ${text.slice(0, 80).replace(/\s+/g, ' ')}`); }
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+
+// How long the recording is.
+async function replayInit() {
+  const rp = replay;
+  if (!rp) return;
+  rp.error = null;
+  rp.loading = true;
+  dirty = true;
+  try {
+    const r = await getJson(`api/replay?id=${encodeURIComponent(rp.id)}&t=0&span=10000&itemsOnly=1`);
+    if (replay !== rp) return;
+    if (!r.start) throw new Error('the recording is empty');
+    Object.assign(rp, { start: r.start, end: r.end, pos: r.end, until: r.end, loading: false });
+  } catch (e) {
+    if (replay !== rp) return;
+    rp.loading = false;
+    rp.error = e.message;
+  }
+  dirty = true;
 }
 
 // ---------- replay ----------
@@ -134,8 +164,8 @@ async function replaySeek(t) {
   const rp = replay, gen = ++rp.gen;
   rp.loading = true;
   let d;
-  try { d = await (await fetch(`api/replay?id=${encodeURIComponent(rp.id)}&t=${Math.round(t)}&span=120000`)).json(); }
-  catch { rp.loading = false; return; }
+  try { d = await getJson(`api/replay?id=${encodeURIComponent(rp.id)}&t=${Math.round(t)}&span=120000`); }
+  catch (e) { if (replay === rp && gen === rp.gen) { rp.loading = false; rp.playing = false; rp.error = e.message; dirty = true; } return; }
   if (replay !== rp || gen !== rp.gen) return;
   resetView();
   state = d.state || {};
@@ -152,7 +182,7 @@ async function replayMore() {
   rp.loading = true;
   try {
     const span = Math.max(120000, 60000 * rp.speed);
-    const d = await (await fetch(`api/replay?id=${encodeURIComponent(rp.id)}&t=${Math.round(rp.until)}&span=${span}&itemsOnly=1`)).json();
+    const d = await getJson(`api/replay?id=${encodeURIComponent(rp.id)}&t=${Math.round(rp.until)}&span=${span}&itemsOnly=1`);
     if (replay !== rp || gen !== rp.gen) return;
     queue.push(...(d.items || []));
     rp.until = d.until;
@@ -162,7 +192,7 @@ async function replayMore() {
 }
 function replayTick() {
   const rp = replay;
-  if (!rp) return;
+  if (!rp || rp.start == null) return;
   const now = performance.now();
   if (rp.playing && !rp.loading) {
     rp.pos = Math.min(rp.end, rp.pos + (now - rp.wall) * rp.speed);
@@ -177,6 +207,8 @@ setInterval(replayTick, 200);
 function replayPlay() {
   const rp = replay;
   if (!rp) return;
+  if (rp.start == null) { if (!rp.loading) replayInit(); return; } // retry after an error
+  rp.error = null;
   if (rp.playing) { rp.playing = false; dirty = true; return; }
   rp.playing = true;
   rp.wall = performance.now();
@@ -193,6 +225,15 @@ function renderReplay() {
   bar.hidden = !replay;
   if (!replay) return;
   const rp = replay;
+  bar.classList.toggle('rp-failed', Boolean(rp.error));
+  if (rp.start == null) {
+    $('rpPlay').textContent = rp.error ? '↻' : '…';
+    $('rpPlay').setAttribute('aria-label', 'Try again');
+    $('rpTime').textContent = rp.error ? `Couldn't load the recording: ${rp.error}` : 'Loading the recording…';
+    $('rpEnd').textContent = '';
+    return;
+  }
+  if (rp.error) { $('rpTime').textContent = `Replay stopped: ${rp.error}`; return; }
   $('rpPlay').textContent = rp.playing ? '❚❚' : '▶';
   $('rpPlay').setAttribute('aria-label', rp.playing ? 'Pause' : 'Play');
   const total = Math.max(1, Math.round((rp.end - rp.start) / 1000));
@@ -208,7 +249,7 @@ $('rpPlay').addEventListener('click', replayPlay);
 $('rpSeek').addEventListener('input', () => { rpDragging = true; dirty = true; });
 $('rpSeek').addEventListener('change', (e) => {
   rpDragging = false;
-  if (replay) replaySeek(replay.start + Number(e.target.value) * 1000);
+  if (replay?.start != null) replaySeek(replay.start + Number(e.target.value) * 1000);
 });
 $('replayBar').addEventListener('click', (e) => {
   const b = e.target.closest('[data-rp-speed]');

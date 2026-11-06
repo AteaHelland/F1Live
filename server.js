@@ -15,7 +15,6 @@ import { Jolpica } from './lib/jolpica.js';
 import { buildIcs } from './lib/ics.js';
 import { Archive } from './lib/archive.js';
 import { Recorder, Player } from './lib/recorder.js';
-import zlib from 'node:zlib';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -241,9 +240,8 @@ const server = http.createServer(async (req, res) => {
       let body;
       try { body = await player.window(url.searchParams.get('id'), t, span, url.searchParams.get('itemsOnly') === '1'); }
       catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'no recording for this session' : e.message }); }
-      const gz = /\bgzip\b/.test(req.headers['accept-encoding'] || '');
-      res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(gz ? { 'Content-Encoding': 'gzip' } : {}) });
-      return res.end(gz ? zlib.gzipSync(body) : body);
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      return res.end(body);
     }
     if (url.pathname === '/api/session') {
       try { return json(res, 200, await archive.load(url.searchParams.get('id'))); }
