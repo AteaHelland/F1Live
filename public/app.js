@@ -1283,7 +1283,7 @@ const tileName = (t) => `${t.z}-${t.x}-${t.y}.png`;
 const frameImgs = (f, tiles) => tiles.map((t) => radarImg(`api/radar/frame/${f}/${tileName(t)}`));
 const settled = (imgs) => imgs.every((e) => e.ok !== null);
 let radarDrawKey = '', radarOverKey = '';
-let radarLoop = null; // { frames, i, next } while "Last hour" plays
+let radarLoop = null; // { frames, i, next } while "Last hour" plays (once, then back to the latest)
 const radarScans = new Map(); // "lat,lon|frame" → where the nearest rain is
 
 // Frames the page may show now, oldest first.
@@ -1360,10 +1360,13 @@ function renderRadar() {
   if (radarLoop) {
     const now = performance.now();
     if (now >= radarLoop.next) {
-      radarLoop.i = (radarLoop.i + 1) % radarLoop.frames.length;
-      radarLoop.next = now + (radarLoop.i === radarLoop.frames.length - 1 ? 1600 : 550);
+      if (radarLoop.i >= radarLoop.frames.length - 1) radarLoop = null; // played through: stop
+      else {
+        radarLoop.i++;
+        radarLoop.next = now + 700;
+      }
     }
-    frame = radarLoop.frames[radarLoop.i];
+    if (radarLoop) frame = radarLoop.frames[radarLoop.i];
   }
   $('radarLoop').textContent = radarLoop ? '■ Stop' : '▶ Last hour';
   $('radarLoop').classList.toggle('on', Boolean(radarLoop));
@@ -2577,8 +2580,8 @@ const CARDS = {
   towerCard: 'Timing', insCard: 'Insights', mapCard: 'Track map', radarCard: 'Weather map', teleCard: 'Telemetry',
   rcCard: 'Race control', radioCard: 'Team radio', weekendCard: 'Next race weekend',
 };
-const DEFAULT_WIDE = { main: ['towerCard', 'insCard'], side: ['mapCard', 'radarCard', 'teleCard', 'rcCard', 'radioCard', 'weekendCard'], hidden: [] };
-const DEFAULT_NARROW = { main: ['towerCard', 'mapCard', 'teleCard', 'radarCard', 'rcCard', 'radioCard', 'insCard', 'weekendCard'], side: [], hidden: [] };
+const DEFAULT_WIDE = { main: ['towerCard', 'insCard'], side: ['mapCard', 'teleCard', 'rcCard', 'radioCard', 'radarCard', 'weekendCard'], hidden: [] };
+const DEFAULT_NARROW = { main: ['towerCard', 'mapCard', 'teleCard', 'rcCard', 'radioCard', 'radarCard', 'insCard', 'weekendCard'], side: [], hidden: [] };
 const narrowMQ = window.matchMedia('(max-width: 980px)');
 let editing = false;
 const layoutKey = () => (narrowMQ.matches ? 'layoutNarrow' : 'layoutWide');
