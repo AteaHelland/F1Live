@@ -57,6 +57,9 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
   away the nearest rain is and whether it has come closer in the last half hour, the wind at the
   track, and a "Last hour" button that plays the last hour of radar once. A new radar image comes every 10 minutes;
   areas without radar coverage are shaded, and the summary says so when the circuit is in one
+- Hourly forecast for the circuit under the weather map, from MET Norway (the forecast behind
+  yr.no): rain per hour with its range and chance, temperature and a weather symbol for the next
+  8 hours, and when rain is possible or likely to start. It's refreshed about every half hour
 - Tyre strategy chart: every driver's stints by compound and length
 - Race trace: each driver's gap to the leader lap by lap, with safety car periods shaded
 - Team radio clips you can play on the page
@@ -105,7 +108,8 @@ weekend's schedule, plus the saved sessions by weekend, each a tap away from its
 **Replay.** Everything F1 sends during a session is also recorded to `feed.jsonl.gz` (plus `feed-2…` after a restart) in its
 folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeline to drag, and
 1×, 2×, 5× or 10× speed. The whole page plays along (tower, map, telemetry, race control, radio,
-charts, and the weather map, which shows each radar image from the moment it arrived). A session still running can be replayed from its start too. Recordings are kept for
+charts, and the weather map, which shows each radar image and forecast from the moment it
+arrived). A session still running can be replayed from its start too. Recordings are kept for
 the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
 for looking back, just without the replay. `RECORD=0` turns recording off.
 
@@ -218,12 +222,15 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `RECORD_WEEKENDS` | `3` | Race weekends whose sessions keep their replay recording (`0` = all) |
 | `RECORD` | `1` | `0` turns recording for replay off |
 | `RADAR` | `1` | `0` turns the weather map's radar off (nothing is fetched or saved) |
+| `FORECAST` | `1` | `0` turns the hourly forecast from MET Norway off |
+| `MET_USER_AGENT` | `f1-home-dashboard/1.0 (+https://github.com/AteaHelland/F1Live)` | How the dashboard identifies itself to MET Norway, which asks for an app name and a way to contact you; put your own website or email here if you like |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, saved sessions and token are kept |
 | `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
 | `DEMO_SESSION` | `race` | In demo mode, `quali` plays a qualifying session instead of a race |
 | `JOLPICA_URL` | `https://api.jolpi.ca/ergast/f1` | Calendar, standings and results API (change only for testing) |
 | `RAINVIEWER_URL` | `https://api.rainviewer.com` | Rain radar API (change only for testing) |
 | `BASEMAP_URL` | CARTO dark map tiles | Base map tile address with `{z}`, `{x}` and `{y}` (change only for testing) |
+| `MET_URL` | `https://api.met.no/weatherapi` | MET Norway's API (change only for testing) |
 
 ## Updating
 
@@ -246,12 +253,15 @@ reload the page in your browser.
 - Team radio clips: played straight from livetiming.formula1.com
 - Track outlines: MultiViewer's public circuit API
 - Rain radar: [RainViewer](https://www.rainviewer.com/) (free API for personal use)
+- Hourly forecast: [MET Norway](https://api.met.no/) Locationforecast, the data behind
+  [yr.no](https://www.yr.no/)
 - Weather map background: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors,
   © [CARTO](https://carto.com/attributions)
 
 To try the weather map without internet access, run `node test/fake-radar.js` and start the
 dashboard with `RAINVIEWER_URL=http://localhost:3098` and
-`BASEMAP_URL='http://localhost:3098/base/{z}/{x}/{y}.png'`.
+`BASEMAP_URL='http://localhost:3098/base/{z}/{x}/{y}.png'` (and `MET_URL=http://localhost:3098/weatherapi`
+for a made-up forecast).
 
 ## Keep secrets out of git
 

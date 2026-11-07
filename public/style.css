@@ -351,6 +351,25 @@ td.c-ghost.drop { color: var(--text); }
 .radar-summary .trend { color: var(--muted); font-weight: 500; }
 .radar-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); white-space: nowrap; }
 .radar-legend i { width: 64px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #88ddee, #0099cc, #0077aa, #005588, #ffee00, #ff4400, #c10000); }
+/* hourly forecast for the circuit (MET Norway / yr.no), under the weather map */
+.fc { border-top: 1px solid var(--line); padding: 8px 12px 10px; }
+.fc[hidden] { display: none; }
+.fc-head { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; margin-bottom: 6px; }
+.fc-head b { font-weight: 600; }
+.fc-head .wet { color: var(--wet); }
+.fc-age { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.fc-hours { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; }
+.fc-h { display: flex; flex-direction: column; align-items: center; gap: 2px; font-variant-numeric: tabular-nums; min-width: 0; }
+.fc-t { font-size: 12px; color: var(--muted); font-weight: 600; }
+.fc-s { font-size: 18px; line-height: 1.2; }
+.fc-temp { font-size: 12px; font-weight: 600; }
+.fc-bar { width: 70%; height: 28px; display: flex; align-items: flex-end; background: var(--panel-2); border-radius: 3px; overflow: hidden; position: relative; }
+.fc-bar i { display: block; width: 100%; background: var(--wet); }
+.fc-bar i.range { position: absolute; left: 0; bottom: 0; background: var(--wet); opacity: .3; }
+.fc-mm { font-size: 12px; font-weight: 700; }
+.fc-mm.dry { color: var(--muted); font-weight: 500; }
+.fc-p { font-size: 11px; color: var(--muted); }
+@media (max-width: 520px) { .fc-hours { grid-template-columns: repeat(6, minmax(0, 1fr)); } .fc-h:nth-child(n+7) { display: none; } }
 .radar-credit { padding: 0 12px 8px; font-size: 11px; color: var(--muted); }
 .radar-credit a { color: inherit; }
 .spark { display: block; margin-top: 2px; }

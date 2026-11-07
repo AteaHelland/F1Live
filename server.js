@@ -16,6 +16,7 @@ import { buildIcs } from './lib/ics.js';
 import { Archive, raceFor } from './lib/archive.js';
 import { Recorder, Player } from './lib/recorder.js';
 import { Radar } from './lib/radar.js';
+import { Forecast } from './lib/forecast.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -40,6 +41,10 @@ const JOLPICA_URL = process.env.JOLPICA_URL || 'https://api.jolpi.ca/ergast/f1';
 const RADAR_ON = process.env.RADAR !== '0';
 const RAINVIEWER_URL = process.env.RAINVIEWER_URL || 'https://api.rainviewer.com';
 const BASEMAP_URL = process.env.BASEMAP_URL || 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png';
+const FORECAST_ON = process.env.FORECAST !== '0';
+const MET_URL = process.env.MET_URL || 'https://api.met.no/weatherapi';
+// MET Norway asks every app to say who it is; set your own contact here if you like.
+const MET_USER_AGENT = process.env.MET_USER_AGENT || 'f1-home-dashboard/1.0 (+https://github.com/AteaHelland/F1Live)';
 
 await fs.mkdir(path.join(DATA, 'circuits'), { recursive: true });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -110,6 +115,7 @@ let listedKey = null;
 const ACTIVITY_TOPICS = new Set(['TimingData', 'Position', 'CarData', 'TimingAppData', 'RaceControlMessages']);
 let lastActivityAt = 0;
 let radarKey = null;
+const LOCAL_TOPICS = ['Radar', 'Forecast']; // added by this server, not by F1
 function push(item) {
   const prevKey = sessionKey(latest);
   if (item.kind === 'u' && item.topic === 'SessionInfo' && prevKey) {
@@ -123,9 +129,10 @@ function push(item) {
       if (restartedFor !== nextKey && !DEMO) { restartedFor = nextKey; setTimeout(() => live.restart(), 1000); }
     }
   }
-  // A reconnect brings a fresh snapshot of F1's topics only: keep the radar the server added.
-  if (item.kind === 'snap' && latest.Radar && !item.data?.Radar && prevKey && sessionKey(item.data) === prevKey) {
-    item = { ...item, data: { ...item.data, Radar: latest.Radar } };
+  // A reconnect brings a fresh snapshot of F1's topics only: keep what the server added itself.
+  if (item.kind === 'snap' && prevKey && sessionKey(item.data) === prevKey) {
+    const keep = LOCAL_TOPICS.filter((k) => latest[k] && !item.data?.[k]);
+    if (keep.length) item = { ...item, data: { ...item.data, ...Object.fromEntries(keep.map((k) => [k, latest[k]])) } };
   }
   if (item.kind === 'snap' && prevKey && sessionKey(item.data) !== prevKey) {
     archiveNow(JSON.stringify(latest), JSON.stringify(history));
@@ -138,7 +145,7 @@ function push(item) {
   if (item.kind === 'u' && ACTIVITY_TOPICS.has(item.topic)) lastActivityAt = item.t;
   // A new session shows up in the picker within seconds, not at the next minute's save.
   const key = sessionKey(latest);
-  if (key && key !== radarKey) { radarKey = key; setTimeout(radarTick, 3000); } // radar for the new session
+  if (key && key !== radarKey) { radarKey = key; setTimeout(radarTick, 3000); } // radar and forecast for the new session
   if (key && key !== listedKey && !DEMO) {
     listedKey = key;
     setTimeout(() => { if (sessionKey(latest) === key) archiveNow(JSON.stringify(latest), JSON.stringify(history)); }, 5000);
@@ -175,8 +182,20 @@ function radarTarget() {
   if (race?.lat == null) return null;
   return { key, lat: race.lat, lon: race.lon, name: race.circuit || race.locality || '' };
 }
+// Hourly forecast for the circuit from MET Norway (yr.no); FORECAST=0 turns it off.
+const forecast = FORECAST_ON ? new Forecast({
+  api: MET_URL, userAgent: MET_USER_AGENT, log, getState: () => latest,
+  emit: (key, data) => {
+    if (sessionKey(latest) !== key) return false;
+    push({ t: Date.now(), kind: 'u', topic: 'Forecast', data });
+    return true;
+  },
+}) : null;
 function radarTick() {
-  if (radar && (DEMO || inLiveWindow(schedule.races))) radar.tick(radarTarget());
+  if (!(DEMO || inLiveWindow(schedule.races))) return;
+  const target = radarTarget();
+  if (radar) radar.tick(target);
+  if (forecast) forecast.tick(target);
 }
 // Radar frames are kept as long as the recordings that show them, and at least a day.
 async function radarPrune() {
@@ -219,7 +238,7 @@ const schedule = new Schedule({ dataDir: DATA });
 let windowOpen = false;
 
 function statusView() {
-  return { build: BUILD, lastActivityAt, demo: DEMO, radar: radar ? radar.info() : null, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
+  return { build: BUILD, lastActivityAt, demo: DEMO, radar: radar ? radar.info() : null, forecast: forecast ? forecast.info() : null, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
 }
 
 async function tick() {
