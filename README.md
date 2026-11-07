@@ -55,7 +55,7 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - Weather: air and track temperature (with trend), humidity, wind and rain
 - Weather map: rain radar around the circuit (about 450 km across), with distance rings, how far
   away the nearest rain is and whether it has come closer in the last half hour, the wind at the
-  track, and a "Last hour" button that plays the last hour of radar once. A new radar image comes every 10 minutes;
+  track, and a "Last hour" button that loops the radar. A new radar image comes every 10 minutes;
   areas without radar coverage are shaded, and the summary says so when the circuit is in one
 - Tyre strategy chart: every driver's stints by compound and length
 - Race trace: each driver's gap to the leader lap by lap, with safety car periods shaded

@@ -94,8 +94,8 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .map-card { order: 1; }
 .tele-card { order: 2; display: none; }
 .rc-card { order: 3; }
+.radar-card { order: 2; }
 .radio-card { order: 4; }
-.radar-card { order: 4; }
 .weekend { order: 5; }
 body.has-tele .tele-card { display: block; }
 
