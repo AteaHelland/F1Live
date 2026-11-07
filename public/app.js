@@ -207,7 +207,7 @@ function resetView() {
   posMem.clear();
   insKey = ''; teleOptsKey = ''; ghostKey = ''; rcKey = null; radioKey = ''; penKey = ''; flagKey = '';
   penCache = { key: '', list: [] };
-  radarDrawKey = ''; radarOverKey = ''; radarLoop = null; fcKey = '';
+  radarDrawKey = ''; radarOverKey = ''; radarLoop = null;
   dirty = true;
 }
 async function openArchive(id) {
@@ -1456,56 +1456,6 @@ function renderRadar() {
   }
 }
 
-// Hourly forecast for the circuit (MET Norway, as on yr.no), as it stood at the shown moment.
-const FC_ICONS = [['thunder', '⛈️'], ['snow', '🌨️'], ['sleet', '🌨️'], ['heavyrain', '🌧️'], ['lightrain', '🌦️'], ['rain', '🌧️'], ['fog', '🌫️'], ['cloudy', '☁️'], ['partlycloudy', '⛅'], ['fair', '🌤️'], ['clearsky', '☀️']];
-function fcIcon(code) {
-  const c = String(code || '');
-  if (/^(clearsky|fair)_night/.test(c)) return '🌙';
-  if (/^partlycloudy_night/.test(c)) return '☁️';
-  const hit = FC_ICONS.find(([k]) => (k === 'cloudy' ? /^cloudy/.test(c) : c.includes(k)));
-  return hit ? hit[1] : '';
-}
-// "Likely": MET gives a 50 % chance or more (or, without chances, at least 0.5 mm in the hour).
-// "Possible": some rain in the forecast, or a 25 % chance.
-const fcLikely = (h) => (h.p != null ? h.p >= 50 : h.mm >= 0.5);
-const fcPossible = (h) => h.mm >= 0.1 || (h.p != null && h.p >= 25);
-const fcHour = (t) => new Intl.DateTimeFormat('en-GB', { hour: '2-digit' }).format(new Date(t * 1000));
-let fcKey = '';
-function renderForecast() {
-  const el = $('forecast');
-  const fc = hasSession() ? state.Forecast : null;
-  const now = shownNow() / 1000;
-  const hours = (fc?.Hours || []).filter((h) => h.t + 3600 > now).slice(0, 8);
-  const key = hours.length ? `${fc.Updated}|${hours[0].t}|${units.temp}|${Math.floor(now / 60)}` : '';
-  if (key === fcKey) return;
-  fcKey = key;
-  if (!hours.length) { el.hidden = true; el.innerHTML = ''; return; }
-  const likely = hours.findIndex(fcLikely), possible = hours.findIndex(fcPossible);
-  const pct = (h) => (h.p != null ? ` (${Math.round(h.p)}%)` : '');
-  const at = (i) => `<span class="wet">${i === 0 ? 'now' : `from ${fcHour(hours[i].t)}:00`}${pct(hours[i])}</span>`;
-  const head = likely === 0 ? `Rain likely ${at(0)}`
-    : possible >= 0 && (likely < 0 || possible < likely) ? `Rain possible ${at(possible)}${likely > 0 ? `, likely ${at(likely)}` : ''}`
-      : likely > 0 ? `Rain likely ${at(likely)}`
-        : `Dry for the next ${hours.length} hours`;
-  const age = Math.max(0, Math.round((now - Date.parse(fc.Updated) / 1000) / 60));
-  const top = Math.max(2, ...hours.map((h) => h.max ?? h.mm)); // bar scale in mm, at least 2
-  const cells = hours.map((h) => {
-    const wet = h.mm >= 0.1;
-    const title = `${fcHour(h.t)}:00–${fcHour(h.t + 3600)}:00 · ${h.mm} mm${h.min != null && h.max != null ? ` (${h.min}–${h.max})` : ''}${h.p != null ? ` · ${Math.round(h.p)}% chance of rain` : ''}${h.thunder ? ` · ${Math.round(h.thunder)}% chance of thunder` : ''}`;
-    return `<div class="fc-h" title="${esc(title)}">
-      <span class="fc-t">${fcHour(h.t)}</span>
-      <span class="fc-s">${fcIcon(h.sym)}</span>
-      ${h.temp != null ? `<span class="fc-temp">${Math.round(tempVal(h.temp))}°</span>` : ''}
-      <span class="fc-bar">${h.max ? `<i class="range" style="height:${Math.min(100, (h.max / top) * 100).toFixed(0)}%"></i>` : ''}<i style="height:${Math.min(100, (h.mm / top) * 100).toFixed(0)}%"></i></span>
-      <span class="fc-mm${wet ? '' : ' dry'}">${wet ? h.mm.toFixed(1) : '0'}</span>
-      ${h.p != null ? `<span class="fc-p">${Math.round(h.p)}%</span>` : ''}
-    </div>`;
-  }).join('');
-  el.innerHTML = `<div class="fc-head"><b>${head}</b><span class="fc-age" title="Forecast for the circuit from MET Norway (yr.no), in mm of rain per hour">yr.no · ${age < 90 ? `${age} min old` : fmtTime.format(new Date(fc.Updated))}</span></div>
-    <div class="fc-hours">${cells}</div>`;
-  el.hidden = false;
-}
-
 $('radarLoop').addEventListener('click', () => {
   if (radarLoop) { radarLoop = null; dirty = true; return; }
   const frames = radarFrames();
@@ -2742,7 +2692,7 @@ applyLayout();
 // Each part renders on its own: an error in one card is reported and the rest keep updating.
 const PARTS = [
   ['front page', renderHome], ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
-  ['track map', renderMap], ['weather map', renderRadar], ['forecast', renderForecast], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
+  ['track map', renderMap], ['weather map', renderRadar], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
   ['insights', renderInsights], ['replay', renderReplay], ['settings', () => { if ($('settings').open) renderSettings(); }],
 ];
 const failing = new Map(); // part -> message

@@ -1,8 +1,7 @@
-// A stand-in for RainViewer's radar API, the CARTO base map and MET Norway's Locationforecast,
-// for testing the weather map without internet access:
+// A stand-in for RainViewer's radar API and the CARTO base map, for testing the weather map
+// without internet access:
 //   node test/fake-radar.js
-//   RAINVIEWER_URL=http://localhost:3098 BASEMAP_URL='http://localhost:3098/base/{z}/{x}/{y}.png' \
-//     MET_URL=http://localhost:3098/weatherapi npm run demo
+//   RAINVIEWER_URL=http://localhost:3098 BASEMAP_URL='http://localhost:3098/base/{z}/{x}/{y}.png' npm run demo
 // The fake radar shows showers drifting east, a frame every 10 minutes; the lower left of every
 // tile in column x % 4 == 1 has no radar coverage.
 import http from 'node:http';
@@ -46,42 +45,10 @@ function cached(key, make) {
   return cache.get(key);
 }
 
-// Made-up hourly forecast: dry for a few hours, then a shower. Changes every half hour.
-const forecastAt = () => Math.floor(Date.now() / 1800000) * 1800000;
-function forecast(lat, lon) {
-  const start = Math.ceil(Date.now() / 3600000) * 3600000 - 3600000;
-  const SYMS = ['partlycloudy_night', 'cloudy', 'cloudy', 'lightrain', 'rain', 'heavyrainandthunder', 'rain', 'lightrain', 'cloudy', 'fair_night', 'clearsky_night', 'clearsky_night'];
-  const MM = [0, 0, 0, 0.3, 1.2, 4.1, 1.6, 0.4, 0, 0, 0, 0];
-  return {
-    type: 'Feature', geometry: { type: 'Point', coordinates: [lon, lat, 0] },
-    properties: {
-      meta: { updated_at: new Date(forecastAt()).toISOString(), units: { precipitation_amount: 'mm' } },
-      timeseries: Array.from({ length: 24 }, (_, i) => ({
-        time: new Date(start + i * 3600000).toISOString().replace('.000', ''),
-        data: {
-          instant: { details: { air_temperature: 21 - i * 0.4, wind_speed: 3.1 } },
-          next_1_hours: {
-            summary: { symbol_code: SYMS[i % 12] },
-            details: { precipitation_amount: MM[i % 12], precipitation_amount_min: MM[i % 12] / 2, precipitation_amount_max: MM[i % 12] * 1.8, probability_of_precipitation: Math.min(95, MM[i % 12] * 30 + 5), probability_of_thunder: i % 12 === 5 ? 40 : 0 },
-          },
-        },
-      })),
-    },
-  };
-}
-
 http.createServer((req, res) => {
-  const url = new URL(req.url, 'http://x');
-  const p = url.pathname;
+  const p = new URL(req.url, 'http://x').pathname;
   let m, body = null, type = 'image/png';
-  if (p === '/weatherapi/locationforecast/2.0/complete') {
-    const lm = new Date(forecastAt()).toUTCString();
-    const headers = { 'Last-Modified': lm, Expires: new Date(forecastAt() + 1800000).toUTCString() };
-    if (!/^f1-home-dashboard/.test(req.headers['user-agent'] || '')) { res.writeHead(403); return res.end('identify yourself'); }
-    if (req.headers['if-modified-since'] === lm) { res.writeHead(304, headers); return res.end(); }
-    res.writeHead(200, { ...headers, 'Content-Type': 'application/json' });
-    return res.end(JSON.stringify(forecast(Number(url.searchParams.get('lat')), Number(url.searchParams.get('lon')))));
-  } else if (p === '/public/weather-maps.json') {
+  if (p === '/public/weather-maps.json') {
     type = 'application/json';
     body = JSON.stringify({ version: '2.0', generated: Math.floor(Date.now() / 1000), host, radar: { past: frames(), nowcast: [] }, satellite: { infrared: [] } });
   } else if ((m = /^\/v2\/radar\/(\d+)\/(256|512)\/(\d+)\/(\d+)\/(\d+)\/\d+\/[\d_]+\.png$/.exec(p))) {
