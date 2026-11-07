@@ -6,15 +6,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
 import { LiveTimingClient } from './lib/livetiming.js';
-import { Schedule, inLiveWindow } from './lib/schedule.js';
+import { Schedule, inLiveWindow, nextWeekend } from './lib/schedule.js';
 import { DemoClient, demoCircuit, demoSchedule, demoStandings, demoRadioWav } from './lib/demo.js';
 import { applyItem, clone, sessionKey } from './public/merge.js';
 import { extractToken } from './lib/token.js';
 import { History } from './lib/history.js';
 import { Jolpica } from './lib/jolpica.js';
 import { buildIcs } from './lib/ics.js';
-import { Archive } from './lib/archive.js';
+import { Archive, raceFor } from './lib/archive.js';
 import { Recorder, Player } from './lib/recorder.js';
+import { Radar } from './lib/radar.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -36,6 +37,9 @@ const LIVE_ALWAYS = process.env.LIVE_ALWAYS === '1';
 const BUFFER_MS = Number(process.env.BUFFER_SECONDS || 150) * 1000;
 const LIVETIMING_URL = process.env.LIVETIMING_URL || 'https://livetiming.formula1.com/signalrcore';
 const JOLPICA_URL = process.env.JOLPICA_URL || 'https://api.jolpi.ca/ergast/f1';
+const RADAR_ON = process.env.RADAR !== '0';
+const RAINVIEWER_URL = process.env.RAINVIEWER_URL || 'https://api.rainviewer.com';
+const BASEMAP_URL = process.env.BASEMAP_URL || 'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png';
 
 await fs.mkdir(path.join(DATA, 'circuits'), { recursive: true });
 const log = (...a) => console.log(new Date().toISOString(), ...a);
@@ -105,6 +109,7 @@ let listedKey = null;
 // been quiet for a while.
 const ACTIVITY_TOPICS = new Set(['TimingData', 'Position', 'CarData', 'TimingAppData', 'RaceControlMessages']);
 let lastActivityAt = 0;
+let radarKey = null;
 function push(item) {
   const prevKey = sessionKey(latest);
   if (item.kind === 'u' && item.topic === 'SessionInfo' && prevKey) {
@@ -118,6 +123,10 @@ function push(item) {
       if (restartedFor !== nextKey && !DEMO) { restartedFor = nextKey; setTimeout(() => live.restart(), 1000); }
     }
   }
+  // A reconnect brings a fresh snapshot of F1's topics only: keep the radar the server added.
+  if (item.kind === 'snap' && latest.Radar && !item.data?.Radar && prevKey && sessionKey(item.data) === prevKey) {
+    item = { ...item, data: { ...item.data, Radar: latest.Radar } };
+  }
   if (item.kind === 'snap' && prevKey && sessionKey(item.data) !== prevKey) {
     archiveNow(JSON.stringify(latest), JSON.stringify(history));
     items = [];   // the delay buffer must not replay the old session on top of the new one
@@ -129,6 +138,7 @@ function push(item) {
   if (item.kind === 'u' && ACTIVITY_TOPICS.has(item.topic)) lastActivityAt = item.t;
   // A new session shows up in the picker within seconds, not at the next minute's save.
   const key = sessionKey(latest);
+  if (key && key !== radarKey) { radarKey = key; setTimeout(radarTick, 3000); } // radar for the new session
   if (key && key !== listedKey && !DEMO) {
     listedKey = key;
     setTimeout(() => { if (sessionKey(latest) === key) archiveNow(JSON.stringify(latest), JSON.stringify(history)); }, 5000);
@@ -147,6 +157,36 @@ const recorder = DEMO || process.env.RECORD === '0' ? null : new Recorder({
   keepWeekends: Math.max(0, Number(process.env.RECORD_WEEKENDS ?? 3) || 0),
 });
 const player = new Player({ archive });
+
+// ---------- rain radar for the weather map (RADAR=0 turns it off) ----------
+const radar = RADAR_ON ? new Radar({
+  dataDir: DATA, api: RAINVIEWER_URL, basemap: BASEMAP_URL, log, getState: () => latest,
+  emit: (key, data) => {
+    if (sessionKey(latest) !== key) return false;
+    push({ t: Date.now(), kind: 'u', topic: 'Radar', data });
+    return true;
+  },
+}) : null;
+// Where the session is: the calendar race it belongs to (in demo mode, the next weekend's circuit).
+function radarTarget() {
+  const key = sessionKey(latest);
+  if (!key) return null;
+  const race = DEMO ? nextWeekend(schedule.races) : raceFor(latest, schedule.races);
+  if (race?.lat == null) return null;
+  return { key, lat: race.lat, lon: race.lon, name: race.circuit || race.locality || '' };
+}
+function radarTick() {
+  if (radar && (DEMO || inLiveWindow(schedule.races))) radar.tick(radarTarget());
+}
+// Radar frames are kept as long as the recordings that show them, and at least a day.
+async function radarPrune() {
+  if (!radar) return;
+  try {
+    let oldest = Infinity;
+    for (const s of await archive.list()) if (s.recorded && s.start) oldest = Math.min(oldest, Date.parse(s.start));
+    await radar.prune(Math.min(oldest - 3 * 3600000, Date.now() - 86400000));
+  } catch (e) { log('radar prune failed', e.message); }
+}
 function archiveNow(stateJson, historyJson) {
   return archive.save(stateJson, historyJson)
     .then((dir) => { if (dir) broadcast('sessions', { saved: dir.split(path.sep).join('/') }); return dir; })
@@ -179,7 +219,7 @@ const schedule = new Schedule({ dataDir: DATA });
 let windowOpen = false;
 
 function statusView() {
-  return { build: BUILD, lastActivityAt, demo: DEMO, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
+  return { build: BUILD, lastActivityAt, demo: DEMO, radar: radar ? radar.info() : null, liveWindow: windowOpen, live: live.info(), token: tokenInfo(), secretConfigured: Boolean(SECRET), bufferSeconds: BUFFER_MS / 1000 };
 }
 
 async function tick() {
@@ -201,6 +241,10 @@ if (!DEMO && sessionKey(latest)) {
 const jolpica = new Jolpica({ dataDir: DATA, base: JOLPICA_URL });
 await tick();
 setInterval(tick, 60000);
+setInterval(radarTick, 60000);
+setTimeout(radarTick, 5000);
+setInterval(radarPrune, 3600000);
+setTimeout(radarPrune, 120000);
 
 // ---------- circuit outline (MultiViewer API, cached on disk) ----------
 async function circuit(key, year) {
@@ -296,6 +340,18 @@ const server = http.createServer(async (req, res) => {
       const wav = demoRadioWav();
       res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.length, 'Cache-Control': 'max-age=3600' });
       return res.end(wav);
+    }
+    // Weather map images: /api/radar/frame/<unix time>/7-x-y.png, /api/radar/coverage/7-x-y.png,
+    // /api/basemap/8-x-y.png. Only what the server saved is served.
+    const img = /^\/api\/(?:radar\/(frame)\/(\d+)|radar\/(coverage)|(basemap))\/([^/]+)$/.exec(url.pathname);
+    if (img) {
+      const kind = img[1] || img[3] || 'base';
+      const file = radar?.fileFor(kind, img[2], img[5]);
+      let buf = null;
+      if (file) try { buf = await fs.readFile(file); } catch {}
+      if (!buf) return json(res, 404, { error: 'image not kept' });
+      res.writeHead(200, { 'Content-Type': 'image/png', 'Content-Length': buf.length, 'Cache-Control': kind === 'coverage' ? 'private, max-age=86400' : 'private, max-age=604800, immutable' });
+      return res.end(buf);
     }
     if (url.pathname === '/api/circuit') {
       try { return json(res, 200, await circuit(url.searchParams.get('key') || '', url.searchParams.get('year') || '')); }

@@ -9,6 +9,12 @@ const RS = '\x1e';
 const sim = new RaceSimulator();
 const sockets = new Set();
 let validToken = 'good.token.sig';
+// FAKE_PATH=2026/test/ labels the session like a real one, so the dashboard saves and records it
+// (sessions whose path starts with demo/ are never saved).
+function realPath(snap) {
+  if (process.env.FAKE_PATH && snap.SessionInfo) snap.SessionInfo = { ...snap.SessionInfo, Path: process.env.FAKE_PATH };
+  return snap;
+}
 
 function frame(text) {
   const p = Buffer.from(text);
@@ -73,7 +79,7 @@ server.on('upgrade', (req, socket) => {
         if (m.protocol) { socket.write(frame('{}' + RS)); continue; }
         if (m.type === 1 && m.target === 'Subscribe') {
           const topics = m.arguments[0];
-          const snap = sim.rawSnapshot();
+          const snap = realPath(sim.rawSnapshot());
           const result = {};
           for (const t of topics) {
             if (t.endsWith('.z') && !conn.authed) continue;
@@ -91,6 +97,7 @@ server.on('upgrade', (req, socket) => {
 });
 
 sim.on('raw', (topic, data) => {
+  if (topic === 'SessionInfo') data = realPath({ SessionInfo: data }).SessionInfo;
   for (const c of sockets) {
     if (c.subscribed?.has(topic)) c.socket.write(frame(JSON.stringify({ type: 1, target: 'feed', arguments: [topic, data, new Date().toISOString()] }) + RS));
   }

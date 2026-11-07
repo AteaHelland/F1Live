@@ -94,6 +94,7 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .map-card { order: 1; }
 .tele-card { order: 2; display: none; }
 .rc-card { order: 3; }
+.radar-card { order: 2; }
 .radio-card { order: 4; }
 .weekend { order: 5; }
 body.has-tele .tele-card { display: block; }
@@ -328,6 +329,30 @@ td.c-ghost.drop { color: var(--text); }
 .wx-trend { font-size: 12px; color: var(--muted); font-weight: 600; }
 .wx-arrow { display: inline-block; color: var(--muted); font-size: 14px; line-height: 1; }
 .wx-rain { color: var(--wet); }
+
+/* weather map: base map, rain radar and an overlay with the circuit */
+.radar-wrap { position: relative; background: #0e1115; }
+.radar-canvas { display: block; width: 100%; height: auto; aspect-ratio: 4 / 3; }
+.radar-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.radar-overlay .ring { fill: none; stroke: rgba(255, 255, 255, .28); stroke-dasharray: 3 4; }
+.radar-overlay .ring-lbl { fill: rgba(255, 255, 255, .55); font-family: var(--font); font-weight: 600; paint-order: stroke; stroke: #0b0d10; }
+.radar-overlay .pin { fill: var(--red); stroke: #fff; }
+.radar-overlay .pin-lbl { fill: #fff; font-family: var(--font); font-weight: 700; paint-order: stroke; stroke: #0b0d10; }
+.radar-overlay .nearest { stroke: var(--wet); stroke-dasharray: 5 4; fill: none; }
+.radar-overlay .nearest-dot { fill: var(--wet); stroke: #fff; stroke-width: 1.5; }
+.radar-overlay .wind { fill: none; stroke: var(--text); stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
+.radar-overlay .wind-bg { fill: rgba(11, 13, 16, .75); stroke: var(--line); }
+.radar-overlay .wind-lbl { fill: var(--text); font-family: var(--font); font-weight: 700; text-anchor: middle; }
+.radar-time { color: var(--text); letter-spacing: 0; text-transform: none; font-weight: 600; margin-left: 6px; }
+.radar-time .stale { color: var(--orange); }
+.radar-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border-top: 1px solid var(--line); font-size: 14px; }
+.radar-summary { font-weight: 600; min-width: 0; }
+.radar-summary .wet { color: var(--wet); }
+.radar-summary .trend { color: var(--muted); font-weight: 500; }
+.radar-legend { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.radar-legend i { width: 64px; height: 8px; border-radius: 4px; background: linear-gradient(90deg, #88ddee, #0099cc, #0077aa, #005588, #ffee00, #ff4400, #c10000); }
+.radar-credit { padding: 0 12px 8px; font-size: 11px; color: var(--muted); }
+.radar-credit a { color: inherit; }
 .spark { display: block; margin-top: 2px; }
 .spark path { fill: none; stroke: var(--muted); stroke-width: 1.5; stroke-linejoin: round; }
 

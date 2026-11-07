@@ -53,6 +53,10 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - Race control messages
 - A track map with live car positions in team colours, with yellow-flagged sectors highlighted
 - Weather: air and track temperature (with trend), humidity, wind and rain
+- Weather map: rain radar around the circuit (about 450 km across), with distance rings, how far
+  away the nearest rain is and whether it has come closer in the last half hour, the wind at the
+  track, and a "Last hour" button that loops the radar. A new radar image comes every 10 minutes;
+  areas without radar coverage are shaded, and the summary says so when the circuit is in one
 - Tyre strategy chart: every driver's stints by compound and length
 - Race trace: each driver's gap to the leader lap by lap, with safety car periods shaded
 - Team radio clips you can play on the page
@@ -101,7 +105,7 @@ weekend's schedule, plus the saved sessions by weekend, each a tap away from its
 **Replay.** Everything F1 sends during a session is also recorded to `feed.jsonl.gz` (plus `feed-2…` after a restart) in its
 folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeline to drag, and
 1×, 2×, 5× or 10× speed. The whole page plays along (tower, map, telemetry, race control, radio,
-charts). A session still running can be replayed from its start too. Recordings are kept for
+charts, and the weather map, which shows each radar image from the moment it arrived). A session still running can be replayed from its start too. Recordings are kept for
 the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
 for looking back, just without the replay. `RECORD=0` turns recording off.
 
@@ -109,6 +113,12 @@ A new session always starts from a clean slate: when F1 moves on to the next ses
 before is saved to its folder, the page is cleared, and the dashboard reconnects for a full
 snapshot of the new one. Drivers who only ran in practice don't carry over into the next session.
 Round numbers come from the calendar; session folders are named P1, P2, P3, SQ, S, Q and R.
+
+**Weather map images.** While a session is on, the server saves the radar images around the
+circuit to `data/radar` (and the base map once per circuit to `data/basemap`), a few megabytes per
+session. Radar images are kept as long as the recordings that show them (`RECORD_WEEKENDS`), and
+at least a day. The radar comes from RainViewer's free API, which covers the last two hours (no
+forecast) and is meant for personal use.
 
 The race trace is built by the server as laps are completed, so it starts from the first lap
 the server sees. If the container restarts mid-race, the laps it missed stay empty.
@@ -207,10 +217,13 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
 | `RECORD_WEEKENDS` | `3` | Race weekends whose sessions keep their replay recording (`0` = all) |
 | `RECORD` | `1` | `0` turns recording for replay off |
+| `RADAR` | `1` | `0` turns the weather map's radar off (nothing is fetched or saved) |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, saved sessions and token are kept |
 | `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
 | `DEMO_SESSION` | `race` | In demo mode, `quali` plays a qualifying session instead of a race |
 | `JOLPICA_URL` | `https://api.jolpi.ca/ergast/f1` | Calendar, standings and results API (change only for testing) |
+| `RAINVIEWER_URL` | `https://api.rainviewer.com` | Rain radar API (change only for testing) |
+| `BASEMAP_URL` | CARTO dark map tiles | Base map tile address with `{z}`, `{x}` and `{y}` (change only for testing) |
 
 ## Updating
 
@@ -232,6 +245,13 @@ reload the page in your browser.
 - Race calendar, standings and results: api.jolpi.ca (Ergast-compatible)
 - Team radio clips: played straight from livetiming.formula1.com
 - Track outlines: MultiViewer's public circuit API
+- Rain radar: [RainViewer](https://www.rainviewer.com/) (free API for personal use)
+- Weather map background: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors,
+  © [CARTO](https://carto.com/attributions)
+
+To try the weather map without internet access, run `node test/fake-radar.js` and start the
+dashboard with `RAINVIEWER_URL=http://localhost:3098` and
+`BASEMAP_URL='http://localhost:3098/base/{z}/{x}/{y}.png'`.
 
 ## Keep secrets out of git
 

@@ -12,11 +12,14 @@ const drivers = st.drivers.map((d) => ({
 }));
 const ctor = (name) => ({ constructorId: name.toLowerCase().replace(/\W+/g, '_'), name });
 
+// Made-up circuit positions (latitude, longitude) for the weather map.
+const SPOTS = [[26.03, 50.51], [52.07, -1.02], [36.11, -115.17], [45.62, 9.29], [-23.70, -46.70], [24.47, 54.60]];
 const races = Array.from({ length: 22 }, (_, i) => {
   const date = new Date(Date.UTC(year, 2, 8 + i * 12)).toISOString().slice(0, 10);
   return {
     season: String(year), round: String(i + 1), raceName: `Test ${['Bahrain', 'Saudi', 'Australian', 'Japanese', 'Chinese', 'Miami', 'Monaco', 'Spanish', 'Canadian', 'Austrian', 'British', 'Belgian', 'Hungarian', 'Dutch', 'Italian', 'Madrid', 'Azerbaijan', 'Singapore', 'US', 'Mexico City', 'Brazilian', 'Abu Dhabi'][i]} Grand Prix`,
     date, time: '14:00:00Z', ...(i % 4 === 1 ? { Sprint: { date, time: '10:00:00Z' } } : {}),
+    Circuit: { circuitId: `test${i + 1}`, circuitName: `Test Circuit ${i + 1}`, Location: { lat: String(SPOTS[i % SPOTS.length][0]), long: String(SPOTS[i % SPOTS.length][1]), locality: 'Testville', country: 'Testland' } },
   };
 });
 
