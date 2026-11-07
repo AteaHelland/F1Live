@@ -1,6 +1,5 @@
 import { applyItem, clone, list, sessionKey, stintRanges } from './merge.js';
 import { strategyChart, raceTrace, sparkline, teleTrace, lapChart, COMPOUND_LETTER } from './charts.js';
-import { mapView, tilesFor, BASE_Z, RADAR_Z } from './radar-geo.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -207,7 +206,6 @@ function resetView() {
   posMem.clear();
   insKey = ''; teleOptsKey = ''; ghostKey = ''; rcKey = null; radioKey = ''; penKey = ''; flagKey = '';
   penCache = { key: '', list: [] };
-  radarDrawKey = ''; radarOverKey = ''; radarLoop = null;
   dirty = true;
 }
 async function openArchive(id) {
@@ -1262,210 +1260,6 @@ function renderWx() {
     <div class="wx-item"><span class="wx-k">Weather</span><span class="wx-v ${rain ? 'wx-rain' : ''}">${rain ? '🌧 Raining' : 'Dry'}</span></div>`;
   el.hidden = false;
 }
-
-// ---------- weather map (rain radar) ----------
-// The server saves a radar image around the circuit every 10 minutes and announces it in the
-// feed (state.Radar), so the map follows the broadcast delay and the replay clock like the rest.
-const radarImgs = new Map(); // url → { img, ok: null (loading) | true | false }
-function radarImg(url) {
-  let e = radarImgs.get(url);
-  if (!e) {
-    e = { img: new Image(), ok: null };
-    e.img.onload = () => { e.ok = true; dirty = true; };
-    e.img.onerror = () => { e.ok = false; dirty = true; };
-    e.img.src = url;
-    radarImgs.set(url, e);
-    while (radarImgs.size > 600) radarImgs.delete(radarImgs.keys().next().value);
-  }
-  return e;
-}
-const tileName = (t) => `${t.z}-${t.x}-${t.y}.png`;
-const frameImgs = (f, tiles) => tiles.map((t) => radarImg(`api/radar/frame/${f}/${tileName(t)}`));
-const settled = (imgs) => imgs.every((e) => e.ok !== null);
-let radarDrawKey = '', radarOverKey = '';
-let radarLoop = null; // { frames, i, next } while "Last hour" plays
-const radarScans = new Map(); // "lat,lon|frame" → where the nearest rain is
-
-// Frames the page may show now, oldest first.
-function radarFrames() {
-  const fr = state.Radar?.Frames || {};
-  const now = shownNow() / 1000;
-  return Object.keys(fr).filter((k) => fr[k]).map(Number).filter((t) => t <= now).sort((a, b) => a - b);
-}
-
-// Nearest rain to the circuit in one frame: draws the radar small, off screen, and looks for
-// the closest pixel with rain. Coverage images are black where there's no radar.
-function rainScan(v, tiles, fImgs, cImgs) {
-  const c = document.createElement('canvas');
-  c.width = v.w; c.height = v.h;
-  const g = c.getContext('2d', { willReadFrequently: true });
-  tiles.forEach((t, i) => { if (fImgs[i].ok) g.drawImage(fImgs[i].img, t.left, t.top, t.size, t.size); });
-  const rain = g.getImageData(0, 0, v.w, v.h).data;
-  g.clearRect(0, 0, v.w, v.h);
-  tiles.forEach((t, i) => { if (cImgs[i].ok) g.drawImage(cImgs[i].img, t.left, t.top, t.size, t.size); });
-  const cov = g.getImageData(0, 0, v.w, v.h).data;
-  const cx = Math.round(v.w / 2), cy = Math.round(v.h / 2);
-  let best = Infinity, bx = 0, by = 0, dark = 0, n = 0;
-  for (let y = 0; y < v.h; y += 2) {
-    for (let x = 0; x < v.w; x += 2) {
-      const i = (y * v.w + x) * 4;
-      n++;
-      if (cov[i + 3] > 128) dark++;
-      if (rain[i + 3] < 128) continue;
-      const d = (x - cx) ** 2 + (y - cy) ** 2;
-      if (d < best) { best = d; bx = x; by = y; }
-    }
-  }
-  return {
-    km: best === Infinity ? null : (Math.sqrt(best) * v.mPerPx) / 1000, bx, by,
-    covered: cov[(cy * v.w + cx) * 4 + 3] < 128, share: 1 - dark / n,
-  };
-}
-
-function radarScan(loc, v, tiles, cImgs, frame) {
-  const key = `${loc.Lat},${loc.Lon}|${frame}`;
-  if (radarScans.has(key)) return radarScans.get(key);
-  const fImgs = frameImgs(frame, tiles);
-  if (!settled(fImgs) || !settled(cImgs)) return null;
-  if (!fImgs.some((e) => e.ok)) return { missing: true };
-  const s = rainScan(v, tiles, fImgs, cImgs);
-  radarScans.set(key, s);
-  if (radarScans.size > 200) radarScans.delete(radarScans.keys().next().value);
-  return s;
-}
-
-const bearing = (dx, dy) => COMPASS[Math.round(((Math.atan2(dx, -dy) * 180) / Math.PI + 360) / 45) % 8];
-const kmStr = (km) => (imperialSpeed() ? `${Math.round(km * 0.621371)} mi` : `${Math.round(km)} km`);
-
-function renderRadar() {
-  const loc = state.Radar?.Loc;
-  const canvas = $('radarCanvas'), over = $('radarOverlay'), note = $('radarNote');
-  const frames = loc && hasSession() ? radarFrames() : [];
-  $('radarLoop').hidden = frames.length < 2;
-  if (!loc || !hasSession()) {
-    if (radarDrawKey !== 'none') {
-      radarDrawKey = 'none'; radarOverKey = '';
-      canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
-      over.innerHTML = '';
-      $('radarTime').textContent = '';
-      $('radarSummary').textContent = '';
-    }
-    radarLoop = null;
-    note.textContent = hasSession() ? 'The weather map needs the circuit’s position from the calendar.' : 'The weather map appears when a session starts.';
-    return;
-  }
-
-  // Which frame: the latest, or the one the "Last hour" loop is on.
-  let frame = frames[frames.length - 1] ?? null;
-  if (radarLoop) {
-    const now = performance.now();
-    if (now >= radarLoop.next) {
-      radarLoop.i = (radarLoop.i + 1) % radarLoop.frames.length;
-      radarLoop.next = now + (radarLoop.i === radarLoop.frames.length - 1 ? 1600 : 550);
-    }
-    frame = radarLoop.frames[radarLoop.i];
-  }
-  $('radarLoop').textContent = radarLoop ? '■ Stop' : '▶ Last hour';
-  $('radarLoop').classList.toggle('on', Boolean(radarLoop));
-
-  const v = mapView(loc.Lat, loc.Lon);
-  const base = tilesFor(v, BASE_Z), rad = tilesFor(v, RADAR_Z);
-  const bImgs = base.map((t) => radarImg(`api/basemap/${tileName(t)}`));
-  const cImgs = rad.map((t) => radarImg(`api/radar/coverage/${tileName(t)}`));
-  const fImgs = frame ? frameImgs(frame, rad) : [];
-  const drawKey = `${loc.Lat},${loc.Lon}|${frame}|${[...bImgs, ...cImgs, ...fImgs].map((e) => (e.ok === null ? '.' : e.ok ? '1' : '0')).join('')}`;
-  if (drawKey !== radarDrawKey) {
-    radarDrawKey = drawKey;
-    const g = canvas.getContext('2d');
-    const k = canvas.width / v.w;
-    g.globalAlpha = 1;
-    g.fillStyle = '#0e1115';
-    g.fillRect(0, 0, canvas.width, canvas.height);
-    base.forEach((t, i) => { if (bImgs[i].ok) g.drawImage(bImgs[i].img, t.left * k, t.top * k, t.size * k, t.size * k); });
-    g.globalAlpha = 0.45; // darken where there's no radar
-    rad.forEach((t, i) => { if (cImgs[i].ok) g.drawImage(cImgs[i].img, t.left * k, t.top * k, t.size * k, t.size * k); });
-    g.globalAlpha = 0.8;
-    rad.forEach((t, i) => { if (fImgs[i]?.ok) g.drawImage(fImgs[i].img, t.left * k, t.top * k, t.size * k, t.size * k); });
-    g.globalAlpha = 1;
-  }
-
-  // Nearest rain now and about half an hour earlier, for the trend.
-  const scan = frame ? radarScan(loc, v, rad, cImgs, frame) : null;
-  const earlier = frame && frames.filter((f) => f <= frame - 1500).pop();
-  const scan0 = earlier && frame - earlier <= 2700 ? radarScan(loc, v, rad, cImgs, earlier) : null;
-
-  if (!frame) note.textContent = status?.radar?.error ? `Waiting for the radar (${status.radar.error})` : 'Waiting for the first radar image…';
-  else if (scan?.missing) note.textContent = 'The radar images for this session are no longer kept.';
-  else note.textContent = '';
-
-  // Header: the frame's time, flagged when it's old.
-  if (frame) {
-    const age = Math.round((shownNow() / 1000 - frame) / 60);
-    const latest = frames[frames.length - 1];
-    const extra = radarLoop ? (frame === latest ? ' · latest' : ` · −${Math.round((latest - frame) / 60)} min`)
-      : age > 25 ? ` · <span class="stale">${age} min old</span>` : '';
-    $('radarTime').innerHTML = `${fmtTime.format(new Date(frame * 1000))}${extra}`;
-  } else $('radarTime').textContent = '';
-
-  // Summary under the map.
-  let sum = '';
-  if (scan && !scan.missing) {
-    const partly = scan.share < 0.85 ? ' <span class="trend">· radar covers part of the map</span>' : '';
-    if (!scan.covered) {
-      const seen = scan.km == null ? '' : scan.km < 3 ? 'rain seen nearby' : `rain seen ${kmStr(scan.km)} ${bearing(scan.bx - v.w / 2, scan.by - v.h / 2)}`;
-      sum = `No radar coverage at the circuit${seen ? ` <span class="trend">· ${seen}</span>` : ''}`;
-    }
-    else if (scan.km == null) sum = `No rain on the map${partly}`;
-    else if (scan.km < 3) sum = '<span class="wet">Rain over the circuit</span>';
-    else {
-      let trend = '';
-      if (scan0 && !scan0.missing && scan0.km != null) {
-        const d = scan0.km - scan.km, mins = Math.round((frame - earlier) / 60);
-        trend = Math.abs(d) < 5 ? ` <span class="trend">· about the same as ${mins} min ago</span>`
-          : ` <span class="trend">· ${kmStr(Math.abs(d))} ${d > 0 ? 'closer' : 'further'} than ${mins} min ago</span>`;
-      } else if (scan0 && !scan0.missing && scan0.km == null) trend = ' <span class="trend">· new in the last half hour</span>';
-      sum = `Nearest rain <span class="wet">${kmStr(scan.km)} ${bearing(scan.bx - v.w / 2, scan.by - v.h / 2)}</span>${trend}${partly}`;
-    }
-  } else if (frame && !scan) sum = '<span class="trend">Loading…</span>';
-  $('radarSummary').innerHTML = sum;
-
-  // Overlay: distance rings, the circuit, the nearest rain and the wind at the track.
-  const w = state.WeatherData;
-  const dir = Number(w?.WindDirection);
-  const hasWind = w?.WindDirection != null && Number.isFinite(dir) && w?.WindSpeed != null;
-  // Text and markers keep their size on screen however wide the card is.
-  const ui = Math.max(1, Math.min(2.4, v.w / (over.clientWidth || v.w)));
-  const overKey = `${loc.Lat},${loc.Lon}|${units.speed}|${ui.toFixed(2)}|${scan && !scan.missing && scan.km >= 3 ? `${scan.bx},${scan.by}` : ''}|${hasWind ? `${dir},${w.WindSpeed}` : ''}`;
-  if (overKey !== radarOverKey) {
-    radarOverKey = overKey;
-    const cx = v.w / 2, cy = v.h / 2;
-    const rings = (imperialSpeed() ? [15, 30, 60] : [25, 50, 100]).map((d) => [d, (d * (imperialSpeed() ? 1609.34 : 1000)) / v.mPerPx]).filter(([, r]) => r < v.h * 0.62);
-    let svg = rings.map(([d, r]) => `<circle class="ring" cx="${cx}" cy="${cy}" r="${r.toFixed(1)}" stroke-width="${ui}"/><text class="ring-lbl" x="${cx + 4 * ui}" y="${(cy - r - 4 * ui).toFixed(1)}" font-size="${12 * ui}" stroke-width="${3 * ui}">${d} ${imperialSpeed() ? 'mi' : 'km'}</text>`).join('');
-    if (scan && !scan.missing && scan.km >= 3) svg += `<line class="nearest" x1="${cx}" y1="${cy}" x2="${scan.bx}" y2="${scan.by}" stroke-width="${2 * ui}"/><circle class="nearest-dot" cx="${scan.bx}" cy="${scan.by}" r="${5 * ui}"/>`;
-    svg += `<circle class="pin" cx="${cx}" cy="${cy}" r="${7 * ui}" stroke-width="${2 * ui}"/><text class="pin-lbl" x="${cx + 12 * ui}" y="${cy + 5 * ui}" font-size="${14 * ui}" stroke-width="${4 * ui}">${esc(loc.Name || state.SessionInfo?.Meeting?.Circuit?.ShortName || '')}</text>`;
-    if (hasWind) {
-      const [wv, wu] = windStr(w.WindSpeed);
-      svg += `<g transform="translate(${v.w - 44 * ui} ${44 * ui}) scale(${ui})"><circle class="wind-bg" r="34"/>
-        <g transform="rotate(${dir + 180})"><path class="wind" d="M0 14 L0 -14 M-7 -6 L0 -14 L7 -6"/></g>
-        <text class="wind-lbl" y="30" font-size="11">${wv} ${wu}</text><title>Wind at the track</title></g>`;
-    }
-    over.innerHTML = svg;
-  }
-}
-
-$('radarLoop').addEventListener('click', () => {
-  if (radarLoop) { radarLoop = null; dirty = true; return; }
-  const frames = radarFrames();
-  const last = frames[frames.length - 1];
-  const loop = frames.filter((f) => f >= last - 3600);
-  if (loop.length < 2) return;
-  const loc = state.Radar.Loc;
-  const rad = tilesFor(mapView(loc.Lat, loc.Lon), RADAR_Z);
-  for (const f of loop) frameImgs(f, rad); // start loading every frame
-  radarLoop = { frames: loop, i: -1, next: 0 };
-  dirty = true;
-});
-setInterval(() => { if (radarLoop) dirty = true; }, 100);
 
 // ---------- telemetry ----------
 function teleNum() {
@@ -2574,11 +2368,11 @@ setInterval(updateWake, 5000); // follows sessions starting and ending
 // Cards can be moved up and down, between the two columns (on wide screens) and hidden.
 // Wide and narrow screens keep separate layouts, saved in this browser.
 const CARDS = {
-  towerCard: 'Timing', insCard: 'Insights', mapCard: 'Track map', radarCard: 'Weather map', teleCard: 'Telemetry',
+  towerCard: 'Timing', insCard: 'Insights', mapCard: 'Track map', teleCard: 'Telemetry',
   rcCard: 'Race control', radioCard: 'Team radio', weekendCard: 'Next race weekend',
 };
-const DEFAULT_WIDE = { main: ['towerCard', 'insCard'], side: ['mapCard', 'radarCard', 'teleCard', 'rcCard', 'radioCard', 'weekendCard'], hidden: [] };
-const DEFAULT_NARROW = { main: ['towerCard', 'mapCard', 'teleCard', 'radarCard', 'rcCard', 'radioCard', 'insCard', 'weekendCard'], side: [], hidden: [] };
+const DEFAULT_WIDE = { main: ['towerCard', 'insCard'], side: ['mapCard', 'teleCard', 'rcCard', 'radioCard', 'weekendCard'], hidden: [] };
+const DEFAULT_NARROW = { main: ['towerCard', 'mapCard', 'teleCard', 'rcCard', 'radioCard', 'insCard', 'weekendCard'], side: [], hidden: [] };
 const narrowMQ = window.matchMedia('(max-width: 980px)');
 let editing = false;
 const layoutKey = () => (narrowMQ.matches ? 'layoutNarrow' : 'layoutWide');
@@ -2596,10 +2390,8 @@ function getLayout() {
   // Cards added in a later version go where the default puts them.
   for (const id of ids) {
     if (seen.has(id)) continue;
-    const col = narrow || def.main.includes(id) ? 'main' : 'side';
-    const prev = def[col][def[col].indexOf(id) - 1];
-    const at = prev ? L[col].indexOf(prev) : -1;
-    L[col].splice(at >= 0 ? at + 1 : L[col].length, 0, id); // right after the card before it
+    const col = def.main.includes(id) ? 'main' : 'side';
+    L[col].push(id);
   }
   return L;
 }
@@ -2689,7 +2481,7 @@ applyLayout();
 // Each part renders on its own: an error in one card is reported and the rest keep updating.
 const PARTS = [
   ['front page', renderHome], ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
-  ['track map', renderMap], ['weather map', renderRadar], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
+  ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
   ['insights', renderInsights], ['replay', renderReplay], ['settings', () => { if ($('settings').open) renderSettings(); }],
 ];
 const failing = new Map(); // part -> message
