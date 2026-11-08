@@ -101,7 +101,10 @@ weekend's schedule, plus the saved sessions by weekend, each a tap away from its
 **Replay.** Everything F1 sends during a session is also recorded to `feed.jsonl.gz` (plus `feed-2…` after a restart) in its
 folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeline to drag, and
 1×, 2×, 5× or 10× speed. The whole page plays along (tower, map, telemetry, race control, radio,
-charts). A session still running can be replayed from its start too. Recordings are kept for
+charts). A replay opens paused at the start, 3 minutes before the scheduled start
+(`RECORD_LEAD`), so the result isn't shown until you get there; recording also only begins then,
+even though the live page connects 45 minutes ahead. A session still running can be replayed
+from its start too. Recordings are kept for
 the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
 for looking back, just without the replay. `RECORD=0` turns recording off.
 
@@ -207,6 +210,7 @@ Set these under `environment:` in `docker-compose.yml`, then run `sudo docker co
 | `F1TV_TOKEN` | – | A token to start with (one saved through settings takes priority) |
 | `RECORD_WEEKENDS` | `3` | Race weekends whose sessions keep their replay recording (`0` = all) |
 | `RECORD` | `1` | `0` turns recording for replay off |
+| `RECORD_LEAD` | `3` | Minutes before a session's scheduled start that recording and replays begin |
 | `DATA_DIR` | `./data` | Where the calendar, track outlines, saved sessions and token are kept |
 | `DEMO_SPEED` | `1` | In demo mode, runs the simulated session faster (e.g. `8`) to fill the charts quickly; lap times look odd at high speeds |
 | `DEMO_SESSION` | `race` | In demo mode, `quali` plays a qualifying session instead of a race |

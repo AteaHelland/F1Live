@@ -222,13 +222,14 @@ async function openArchive(id) {
   if (es) { es.close(); es = null; }
   viewing = { id: d.id, ...d.info };
   replay = null;
-  state = d.state || {};
+  // A recorded session opens at its start, paused, so the result isn't given away.
+  state = d.info.recorded ? {} : d.state || {};
   hist = d.history?.entries || [];
   resetView();
   window.history.replaceState(null, '', `#s=${encodeURIComponent(d.id)}`);
   if (d.info.recorded) {
-    // The bar shows straight away; until play or a seek, the page shows the end.
-    replay = { id: d.id, start: null, end: null, pos: null, until: null, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true, error: null };
+    // The bar shows straight away; the page waits at the start until play is pressed.
+    replay = { id: d.id, start: null, end: null, pos: null, until: null, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true, error: null, endState: d.state || {} };
     dirty = true;
     replayInit();
   }
@@ -259,12 +260,14 @@ async function replayInit() {
     const r = await getJson(`api/replay?id=${encodeURIComponent(rp.id)}&t=0&span=10000&itemsOnly=1`);
     if (replay !== rp) return;
     if (!r.start) throw new Error('the recording is empty');
-    Object.assign(rp, { start: r.start, end: r.end, pos: r.end, until: r.end, loading: false });
+    Object.assign(rp, { start: r.start, end: r.end, pos: r.start, until: r.start, loading: false });
+    await replaySeek(r.start); // load the start, paused
   } catch (e) {
     if (replay !== rp) return;
     rp.loading = false;
     rp.error = e.message;
   }
+  if (rp.error && !Object.keys(state).length) state = rp.endState; // show what was saved rather than nothing
   dirty = true;
 }
 

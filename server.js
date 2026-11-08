@@ -142,11 +142,13 @@ function push(item) {
 const archive = new Archive({ dataDir: DATA, getRaces: () => schedule.races });
 // Recording for replay: RECORD=0 turns it off; RECORD_WEEKENDS is how many weekends keep their
 // recordings (0 = all). Older sessions keep their folder, just without the recording.
+// RECORD_LEAD is how many minutes before the scheduled start recording (and a replay) begins.
+const RECORD_LEAD = Math.max(0, Number(process.env.RECORD_LEAD ?? 3) || 0);
 const recorder = DEMO || process.env.RECORD === '0' ? null : new Recorder({
-  archive, getRaces: () => schedule.races, log,
+  archive, getRaces: () => schedule.races, log, leadMin: RECORD_LEAD,
   keepWeekends: Math.max(0, Number(process.env.RECORD_WEEKENDS ?? 3) || 0),
 });
-const player = new Player({ archive });
+const player = new Player({ archive, leadMin: RECORD_LEAD });
 function archiveNow(stateJson, historyJson) {
   return archive.save(stateJson, historyJson)
     .then((dir) => { if (dir) broadcast('sessions', { saved: dir.split(path.sep).join('/') }); return dir; })
