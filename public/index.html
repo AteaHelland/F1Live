@@ -44,8 +44,13 @@
 
   <div id="replayBar" class="replay-bar" hidden>
     <button type="button" id="rpPlay" class="icon-btn rp-play" aria-label="Play">▶</button>
+    <button type="button" id="rpPrev" class="icon-btn rp-jump" aria-label="Previous event" title="Previous event">⏮</button>
+    <button type="button" id="rpNext" class="icon-btn rp-jump" aria-label="Next event" title="Next event">⏭</button>
     <span id="rpTime" class="rp-time">0:00:00</span>
-    <input id="rpSeek" type="range" min="0" max="1" value="1" aria-label="Position in the session">
+    <span class="rp-track">
+      <span id="rpMarks" class="rp-marks"></span>
+      <input id="rpSeek" type="range" min="0" max="1" value="1" aria-label="Position in the session">
+    </span>
     <span id="rpEnd" class="rp-time">0:00:00</span>
     <span class="rp-speed">
       <button type="button" class="chip-btn" data-rp-speed="1">1×</button>
@@ -96,6 +101,7 @@
           <div class="tabs" role="tablist" aria-label="Insights" id="insTabs">
             <button type="button" role="tab" data-tab="strategy">Strategy</button>
             <button type="button" role="tab" data-tab="trace">Race trace</button>
+            <button type="button" role="tab" data-tab="positions">Lap chart</button>
           <button type="button" role="tab" data-tab="pits">Pit stops</button>
           <button type="button" role="tab" data-tab="battles">Battles</button>
           <button type="button" role="tab" data-tab="pace">Stint pace</button>
@@ -191,6 +197,12 @@
         <span class="field-label">Keep screen awake <b id="wakeState"></b></span>
         <span class="chips"><button type="button" class="chip-btn" data-wake="off">Off</button><button type="button" class="chip-btn" data-wake="live">During sessions</button><button type="button" class="chip-btn" data-wake="always">Always</button></span>
         <span class="hint">Stops phones and tablets from dimming and locking while this page is open. Saved per device.</span>
+      </div>
+
+      <div class="field">
+        <span class="field-label">Spoiler-free <b id="spoilState"></b></span>
+        <span class="chips"><button type="button" class="chip-btn" data-spoil="0">Off</button><button type="button" class="chip-btn" data-spoil="1">On</button></span>
+        <span class="hint">Hides results, standings and the final timing screen of a qualifying, sprint or race from the last week until you've watched it here, live or as a replay. Replay markers only appear once you've passed them. Saved per device.</span>
       </div>
 
       <label class="field">

@@ -112,6 +112,61 @@ export function raceTrace(series, { width, height, maxLap, bands = [], endLabels
   return { svg, scale: { padL: pad.l, padR: pad.r, W, lapMax, x } };
 }
 
+// ---------- lap chart: every driver's position lap by lap ----------
+// series: [{ num, tla, color, dashed, emphasis, points: [[lap, position], ...] }]; lap 0 is the grid.
+export function positionChart(series, { width, height, maxLap, rows, bands = [] }) {
+  const pad = { l: 34, r: 44, t: 16, b: 24 };
+  const W = Math.max(260, Math.round(width));
+  const H = height;
+  const lapMax = Math.max(maxLap, 2);
+  const n = Math.max(rows, 2);
+  const x = (lap) => pad.l + (lap / lapMax) * (W - pad.l - pad.r);
+  const y = (pos) => pad.t + ((pos - 1) / (n - 1)) * (H - pad.t - pad.b);
+  const parts = [];
+  let lastLbl = -Infinity;
+  for (const b of bands) {
+    const x0 = x(Math.max(0, b.from)), x1 = x(Math.min(lapMax, Math.max(b.to, b.from + 0.6)));
+    parts.push(`<rect class="rt-band b-${esc(b.kind)}" x="${x0.toFixed(1)}" y="${pad.t - 6}" width="${Math.max(2, x1 - x0).toFixed(1)}" height="${H - pad.t - pad.b + 12}"/>`);
+    const lx = (x0 + x1) / 2;
+    if (lx - lastLbl < 28) continue;
+    lastLbl = lx;
+    parts.push(`<text class="rt-band-lbl" x="${lx.toFixed(1)}" y="${pad.t - 8}">${esc(b.label)}</text>`);
+  }
+  const pstep = H / n < 13 ? 2 : 1; // every position, or every other one when it's cramped
+  for (let p = 1; p <= n; p++) {
+    const yy = y(p).toFixed(1);
+    parts.push(`<line class="rt-grid pc-grid" x1="${pad.l}" x2="${W - pad.r}" y1="${yy}" y2="${yy}"/>`);
+    if (p === 1 || p % pstep === 0) parts.push(`<text class="rt-ylbl" x="${pad.l - 6}" y="${yy}">P${p}</text>`);
+  }
+  const lstep = lapMax > 60 ? 10 : lapMax > 25 ? 5 : lapMax > 10 ? 2 : 1;
+  parts.push(`<text class="rt-xlbl" x="${x(0).toFixed(1)}" y="${H - 6}">Grid</text>`);
+  for (let l = lstep; l <= lapMax; l += lstep) {
+    if (x(l) - x(0) < 30) continue; // room for "Grid"
+    parts.push(`<text class="rt-xlbl" x="${x(l).toFixed(1)}" y="${H - 6}">${l}</text>`);
+  }
+  const ordered = [...series].sort((a, b) => (a.emphasis || 0) - (b.emphasis || 0));
+  const ends = [];
+  for (const s of ordered) {
+    let d = '', last = null;
+    for (const [lap, pos] of s.points) {
+      if (!pos) continue;
+      d += `${d ? 'L' : 'M'}${x(lap).toFixed(1)},${y(pos).toFixed(1)}`;
+      last = [lap, pos];
+    }
+    if (!d) continue;
+    const cls = `rt-line${s.dashed ? ' dashed' : ''}${s.emphasis > 0 ? ' em' : ''}${s.emphasis < 0 ? ' dim' : ''}`;
+    parts.push(`<path class="rt-halo${s.emphasis < 0 ? ' dim' : ''}" d="${d}"/><path class="${cls}" d="${d}" style="stroke:${esc(s.color)}"/>`);
+    if (s.points.length === 1 || s.out) parts.push(`<circle class="rt-dot" cx="${x(last[0]).toFixed(1)}" cy="${y(last[1]).toFixed(1)}" r="3" style="fill:${esc(s.color)}"/>`);
+    if (s.emphasis >= 0) ends.push({ x: x(last[0]), y: y(last[1]), s });
+  }
+  for (const e of ends) {
+    parts.push(`<text class="rt-end${e.s.emphasis > 0 ? ' em' : ''}${e.s.out ? ' out' : ''}" x="${(e.s.out ? e.x + 6 : W - pad.r + 6).toFixed(1)}" y="${e.y.toFixed(1)}">${e.s.out ? '' : `<tspan style="fill:${esc(e.s.color)}">▪</tspan> `}${esc(e.s.tla)}</text>`);
+  }
+  parts.push(`<line class="rt-cross" x1="0" x2="0" y1="${pad.t}" y2="${H - pad.b}" visibility="hidden"/>`);
+  const svg = `<svg class="trace" data-chart="positions" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Lap chart: each driver's position by lap">${parts.join('')}</svg>`;
+  return { svg, scale: { padL: pad.l, padR: pad.r, W, lapMax, lapMin: 0, x } };
+}
+
 // ---------- tiny line for weather trends ----------
 export function sparkline(values, w = 64, h = 18) {
   const v = values.filter((n) => Number.isFinite(n));

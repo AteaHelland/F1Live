@@ -256,7 +256,7 @@ const server = http.createServer(async (req, res) => {
       const t = Number(url.searchParams.get('t')) || 0;
       const span = Math.min(600000, Math.max(10000, Number(url.searchParams.get('span')) || 120000));
       let body;
-      try { body = await player.window(url.searchParams.get('id'), t, span, url.searchParams.get('itemsOnly') === '1'); }
+      try { body = await player.window(url.searchParams.get('id'), t, span, url.searchParams.get('itemsOnly') === '1', url.searchParams.get('marks') === '1'); }
       catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'no recording for this session' : e.message }); }
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       return res.end(body);

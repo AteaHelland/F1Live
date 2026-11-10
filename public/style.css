@@ -447,6 +447,8 @@ button.link { background: none; border: 0; color: var(--red); text-decoration: u
 .rt-band.b-red { fill: var(--red); }
 .rt-band-lbl { fill: var(--muted); font-size: 10px; font-weight: 700; text-anchor: middle; font-family: var(--font); }
 .rt-cross { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 3 3; }
+.pc-grid { opacity: .45; }
+.rt-end.out { fill: var(--muted); font-weight: 600; }
 
 /* tables: standings, results */
 .table-wrap { overflow-x: auto; }
@@ -598,7 +600,24 @@ body.editing { padding-bottom: 80px; }
 /* replay */
 .replay-bar { display: flex; align-items: center; gap: 10px; margin: 0 16px 12px; padding: 8px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; flex-wrap: wrap; }
 .replay-bar[hidden] { display: none; }
-.replay-bar input[type=range] { flex: 1 1 200px; min-width: 120px; }
+.rp-track { position: relative; flex: 1 1 200px; min-width: 120px; display: flex; padding-top: 12px; margin-top: -6px; }
+.rp-track input[type=range] { width: 100%; margin: 0; }
+/* events on the replay timeline: ticks above the slider, each a tap target */
+.rp-marks { position: absolute; left: 8px; right: 8px; top: 0; height: 12px; }
+.rp-mark { position: absolute; top: 0; width: 16px; height: 14px; margin-left: -8px; padding: 0; border: 0; background: none; cursor: pointer; }
+.rp-mark::after { content: ''; position: absolute; left: 6px; top: 2px; width: 4px; height: 10px; border-radius: 2px; background: var(--muted); }
+.rp-mark.m-start::after { background: var(--green); }
+.rp-mark.m-sc::after, .rp-mark.m-vsc::after { background: var(--yellow); }
+.rp-mark.m-vsc::after { height: 6px; top: 6px; }
+.rp-mark.m-red::after { background: var(--red); }
+.rp-mark.m-flag::after { background: repeating-linear-gradient(0deg, #fff 0 2.5px, #222 2.5px 5px); }
+.rp-mark.m-pit::after { background: var(--orange); width: 6px; height: 6px; left: 5px; top: 6px; border-radius: 50%; }
+.rp-mark:hover::after { outline: 2px solid var(--text); }
+.rp-jump { color: var(--text); font-size: 13px; }
+.rp-jump:disabled { opacity: .3; cursor: default; }
+.replay-bar.rp-failed .rp-track, .replay-bar.rp-failed .rp-jump { display: none; }
+.spoiler { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.spoiler b { color: var(--text); }
 .rp-play { color: var(--text); font-size: 14px; }
 .rp-time { font-variant-numeric: tabular-nums; font-size: 13px; color: var(--muted); white-space: nowrap; }
 .rp-speed { display: flex; gap: 4px; }
@@ -624,7 +643,7 @@ body.editing { padding-bottom: 80px; }
 .pace-of { color: var(--muted); font-size: 11px; }
 .pace-deg { color: var(--orange); font-weight: 600; } .pace-gain { color: var(--green); font-weight: 600; }
 .replay-bar.rp-failed .rp-time { color: var(--orange); white-space: normal; }
-.replay-bar.rp-failed input[type=range], .replay-bar.rp-failed .rp-speed { display: none; }
+.replay-bar.rp-failed .rp-speed { display: none; }
 
 /* front page between sessions */
 .home { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; padding: 0 16px 24px; align-items: start; }

@@ -1,5 +1,5 @@
 import { applyItem, clone, list, sessionKey, stintRanges } from './merge.js';
-import { strategyChart, raceTrace, sparkline, teleTrace, lapChart, COMPOUND_LETTER } from './charts.js';
+import { strategyChart, raceTrace, positionChart, sparkline, teleTrace, lapChart, COMPOUND_LETTER } from './charts.js';
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -121,7 +121,81 @@ function sessionActive() {
   }
   return false;
 }
-const homeMode = () => !viewing && !homeDismissed && !document.body.classList.contains('editing') && !sessionActive();
+const homeMode = () => !viewing && !document.body.classList.contains('editing') && (spoilerHold() || (!homeDismissed && !sessionActive()));
+
+// ---------- spoiler-free ----------
+// With the setting on, a qualifying, sprint or race from the last week counts as "not watched"
+// until this browser saw it finish live or played its replay to the end (or you tap "Show
+// anyway"). While one is not watched, results and standings are covered, replay markers only
+// appear once passed, and the final timing screen of that session stays behind the front page.
+let spoilerFree = store.get('spoilerFree', false);
+let seen = store.get('seen', {}); // session id → 1
+const SPOIL_MS = 7 * 86400000;
+const OVER = ['Finished', 'Finalised', 'Ends'];
+let liveWatch = { key: null, at: 0 }; // the session seen running on this page, and when last
+const watchingLive = (key) => liveWatch.key === key && Date.now() - liveWatch.at < 5 * 60000;
+
+function unseen() {
+  if (!spoilerFree || status?.demo || !sessionList) return [];
+  const now = Date.now();
+  return sessionList.filter((s) => s.recorded && !/^P\d/.test(s.code || '') && s.start && !seen[s.id]
+    && Date.parse(s.start) < now && now - Date.parse(s.start) < SPOIL_MS && !watchingLive(s.key));
+}
+// Mark a session watched (unless `self` is false), and every session that started before it.
+function markSeen(id, self = true) {
+  const me = sessionList?.find((s) => s.id === id);
+  let changed = false;
+  const set = (x) => { if (!seen[x]) { seen[x] = 1; changed = true; } };
+  if (self) set(id);
+  for (const s of sessionList || []) if (me?.start && s.start && s.start < me.start) set(s.id);
+  if (!changed) return;
+  store.set('seen', seen);
+  insKey = ''; rpMarksKey = '';
+  dirty = true;
+}
+// The finished session on the live screen hasn't been watched: keep it behind the front page.
+function spoilerHold() {
+  if (!spoilerFree || viewing || !hasSession()) return false;
+  const st = sessionStatus();
+  if (!(st === 'Finalised' || st === 'Ends' || (st === 'Finished' && !sessionActive()))) return false;
+  const key = sessionKey(state);
+  return unseen().some((s) => s.key === key);
+}
+function spoilerTick() {
+  if (!spoilerFree) return;
+  if (!sessionList && !sessionsLoading) loadSessionList();
+  // Watching live: a session seen running here, with the page in view, counts as watched once it
+  // finishes, and the sessions before it count as watched from then on.
+  if (!viewing && hasSession() && document.visibilityState === 'visible') {
+    const key = sessionKey(state), st = sessionStatus();
+    const id = sessionList?.find((s) => s.key === key)?.id;
+    if (st === 'Started' && feedUp()) {
+      if (liveWatch.key !== key && id) markSeen(id, false);
+      liveWatch = { key, at: Date.now() };
+    } else if (OVER.includes(st) && watchingLive(key) && id) markSeen(id);
+  }
+  // Watching a replay: watched once it has played past the chequered flag (or to the end).
+  const rp = replay;
+  if (rp?.start != null && rp.pos != null && !seen[rp.id]) {
+    const flag = (rp.marks || []).filter((m) => m.k === 'flag').pop();
+    if (rp.pos >= rp.end - 5000 || (flag && rp.pos >= flag.t + 20000)) markSeen(rp.id);
+  }
+}
+const sesLabel = (s) => `${s.name} (${s.circuit})`;
+// What covers a results or standings view, or null. `racesOnly`: qualifying doesn't spoil it.
+function spoilerCover(racesOnly) {
+  const u = unseen().filter((s) => !racesOnly || ['R', 'S'].includes(s.code));
+  if (!u.length) return null;
+  return {
+    key: `sp|${u.map((s) => s.id).join()}`,
+    html: `<div class="empty spoiler"><span>🙈 Hidden while spoiler-free is on. Not watched yet: <b>${u.map((s) => esc(sesLabel(s))).join(', ')}</b></span><button type="button" class="btn sm" data-reveal>Show anyway</button></div>`,
+  };
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('[data-reveal]')) return;
+  for (const s of unseen()) markSeen(s.id);
+  homeHtml = '';
+});
 
 function renderHome() {
   if (sessionActive()) homeDismissed = false; // next idle spell starts on the front page again
@@ -174,9 +248,12 @@ function renderHome() {
           </button>`).join('')}</div>
       </div>`).join('') + (weekends.length > shown.length ? `<button type="button" class="btn sm hm-more" data-home-more>Show ${weekends.length - shown.length} older weekend${weekends.length - shown.length === 1 ? '' : 's'}</button>` : '');
 
+  const hidden = unseen();
+  const hold = spoilerHold();
+  const spoil = hidden.length ? `<p class="hint hm-spoil">🙈 Spoiler-free: results are hidden until you've watched <b>${hidden.map((s) => esc(sesLabel(s))).join(', ')}</b>. <button type="button" class="btn sm" data-reveal>Show anyway</button></p>` : '';
   const html = `<section class="card hm-hero">${hero}</section>
-    <section class="card hm-replays"><div class="card-head"><h2>Saved sessions</h2><button type="button" class="btn sm" data-home-dash>Open the full dashboard</button></div>
-      <div class="hm-replay-body">${replays}</div></section>`;
+    <section class="card hm-replays"><div class="card-head"><h2>Saved sessions</h2><button type="button" class="btn sm" data-home-dash${hold ? ' disabled title="Hidden until you\'ve watched the last session"' : ''}>Open the full dashboard</button></div>
+      <div class="hm-replay-body">${spoil}${replays}</div></section>`;
   if (html !== homeHtml) { homeHtml = html; $('home').innerHTML = html; }
 }
 
@@ -229,7 +306,7 @@ async function openArchive(id) {
   window.history.replaceState(null, '', `#s=${encodeURIComponent(d.id)}`);
   if (d.info.recorded) {
     // The bar shows straight away; the page waits at the start until play is pressed.
-    replay = { id: d.id, start: null, end: null, pos: null, until: null, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true, error: null, endState: d.state || {} };
+    replay = { id: d.id, start: null, end: null, pos: null, until: null, playing: false, speed: store.get('rpSpeed', 1), wall: 0, loading: false, gen: 0, atEnd: true, error: null, endState: d.state || {}, marks: [], maxPos: 0 };
     dirty = true;
     replayInit();
   }
@@ -257,10 +334,10 @@ async function replayInit() {
   rp.loading = true;
   dirty = true;
   try {
-    const r = await getJson(`api/replay?id=${encodeURIComponent(rp.id)}&t=0&span=10000&itemsOnly=1`);
+    const r = await getJson(`api/replay?id=${encodeURIComponent(rp.id)}&t=0&span=10000&itemsOnly=1&marks=1`);
     if (replay !== rp) return;
     if (!r.start) throw new Error('the recording is empty');
-    Object.assign(rp, { start: r.start, end: r.end, pos: r.start, until: r.start, loading: false });
+    Object.assign(rp, { start: r.start, end: r.end, pos: r.start, until: r.start, loading: false, marks: r.marks || [] });
     await replaySeek(r.start); // load the start, paused
   } catch (e) {
     if (replay !== rp) return;
@@ -316,6 +393,7 @@ function replayTick() {
     dirty = true;
   }
   rp.wall = now;
+  if (rp.pos > rp.maxPos) rp.maxPos = rp.pos;
   if (!rp.loading && !rp.atEnd && rp.until < rp.end && rp.until - rp.pos < 45000 * rp.speed) replayMore();
 }
 setInterval(replayTick, 200);
@@ -335,6 +413,29 @@ const clockText = (ms) => {
   return `${Math.floor(s / 3600)}:${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 let rpDragging = false;
+// Events on the timeline: session start, safety cars, red flags, the chequered flag and, in
+// races, your driver's pit stops. Spoiler-free: only the first start and what has been passed.
+const MARK_LEAD = 5000; // a jump lands this long before the event
+let rpMarksKey = '';
+function replayMarks(rp) {
+  const fn = favNum(), race = sessionType() === 'Race';
+  const first = (rp.marks || []).find((m) => m.k === 'start');
+  const hide = spoilerFree && !seen[rp.id];
+  let starts = 0;
+  return (rp.marks || []).filter((m) => m.k !== 'pit' || (race && m.n === fn)).map((m) => ({
+    ...m,
+    label: m.k === 'start' ? (starts++ ? (race ? 'Restart' : 'Back to green') : race ? 'Race start' : 'Session start')
+      : m.k === 'sc' ? 'Safety car' : m.k === 'vsc' ? 'Virtual safety car' : m.k === 'red' ? 'Red flag'
+        : m.k === 'flag' ? 'Chequered flag' : `${tlaOf(m.n)} pits`,
+  })).filter((m) => !hide || m.t === first?.t || m.t <= rp.maxPos + 1000);
+}
+function replayJump(dir) {
+  const rp = replay;
+  if (!rp || rp.start == null) return;
+  const ms = replayMarks(rp).map((m) => Math.max(rp.start, m.t - MARK_LEAD));
+  const t = dir > 0 ? ms.find((x) => x > rp.pos + 1000) : ms.filter((x) => x < rp.pos - 4000).pop();
+  if (t != null) replaySeek(t);
+}
 function renderReplay() {
   const bar = $('replayBar');
   bar.hidden = !replay;
@@ -359,7 +460,23 @@ function renderReplay() {
   $('rpTime').textContent = `${clockText(at - rp.start)} · ${fmtTimeSec.format(new Date(at))}`;
   $('rpEnd').textContent = clockText(rp.end - rp.start);
   for (const b of document.querySelectorAll('[data-rp-speed]')) b.classList.toggle('on', Number(b.dataset.rpSpeed) === rp.speed);
+  const marks = replayMarks(rp);
+  const span = Math.max(1, rp.end - rp.start);
+  const key = `${rp.id}|${Math.round(span / 10000)}|${marks.map((m) => `${m.t}${m.k}`).join()}`;
+  if (key !== rpMarksKey) {
+    rpMarksKey = key;
+    $('rpMarks').innerHTML = marks.map((m) => `<button type="button" class="rp-mark m-${m.k}" style="left:${(((m.t - rp.start) / span) * 100).toFixed(2)}%" data-mark-t="${m.t}" title="${esc(m.label)} · ${clockText(m.t - rp.start)}" aria-label="Jump to ${esc(m.label)} at ${clockText(m.t - rp.start)}"></button>`).join('');
+  }
+  const jumps = marks.map((m) => Math.max(rp.start, m.t - MARK_LEAD));
+  $('rpNext').disabled = !jumps.some((x) => x > rp.pos + 1000);
+  $('rpPrev').disabled = !jumps.some((x) => x < rp.pos - 4000);
 }
+$('rpPrev').addEventListener('click', () => replayJump(-1));
+$('rpNext').addEventListener('click', () => replayJump(1));
+$('rpMarks').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-mark-t]');
+  if (b && replay?.start != null) replaySeek(Math.max(replay.start, Number(b.dataset.markT) - MARK_LEAD));
+});
 $('rpPlay').addEventListener('click', replayPlay);
 $('rpSeek').addEventListener('input', () => { rpDragging = true; dirty = true; });
 $('rpSeek').addEventListener('change', (e) => {
@@ -1433,6 +1550,7 @@ function renderInsights() {
   for (const b of document.querySelectorAll('#insTabs [data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
   if (tab === 'strategy') renderStrategy();
   else if (tab === 'trace') renderTrace();
+  else if (tab === 'positions') renderPositions();
   else if (tab === 'pits') renderPits();
   else if (tab === 'battles') renderBattles();
   else if (tab === 'pace') renderPace();
@@ -1523,15 +1641,58 @@ function renderTrace() {
   setBody(key, tools, `${legend}<div class="trace-wrap">${svg}</div><p class="hint chart-note">Gap to the leader at the end of each lap. Lapped cars drop off the chart. Shaded: safety car, VSC or red flag.</p>`);
 }
 
+// Lap chart: positions lap by lap, from the grid (lap 0) on.
+function renderPositions() {
+  const tools = `<div class="chips">${[[5, 'Top 5'], [10, 'Top 10'], [0, 'All']].map(([v, l]) =>
+    `<button type="button" class="chip-btn${traceFilter === v ? ' on' : ''}" data-trace-filter="${v}">${l}</button>`).join('')}</div>`;
+  if (!isRaceSession()) return setBody('pc|none', '', '<div class="empty">The lap chart is drawn during races and sprints.</div>');
+  const h = shownHist();
+  const laps = h.filter((e) => e.k === 'lap' && e.pos);
+  const order = runningOrder();
+  const fnum = favNum();
+  const dashed = dashedSet();
+  const nums = new Set((traceFilter ? order.slice(0, traceFilter) : order).map(([n]) => n));
+  if (fnum && order.some(([n]) => n === fnum)) nums.add(fnum);
+  const width = $('insBody').clientWidth - 8;
+  const height = width < 520 ? 300 : 380;
+  const byNum = {};
+  for (const e of laps) (byNum[e.n] ||= []).push([e.lap, e.pos]);
+  const grids = Object.fromEntries(order.map(([n]) => [n, gridOf(n)]));
+  const maxLap = Math.max(Number(state.LapCount?.TotalLaps) || 0, ...laps.map((e) => e.lap), 2);
+  const series = order.filter(([n]) => nums.has(n)).map(([n, l]) => ({
+    num: n, tla: tlaOf(n), color: colorOf(n), dashed: dashed.has(n), out: Boolean(l.Retired || l.Stopped),
+    emphasis: traceFocus ? (n === traceFocus ? 1 : -1) : n === fnum ? 1 : 0,
+    points: [...(grids[n] ? [[0, grids[n]]] : []), ...(byNum[n] || []).sort((a, b) => a[0] - b[0])],
+  }));
+  const key = `pc|${laps.length}|${traceFilter}|${traceFocus}|${fnum}|${width}|${h.length}|${Object.values(grids).join()}`;
+  if (key === insKey) return;
+  if (!laps.length && !Object.values(grids).some(Boolean)) {
+    return setBody(key, tools, '<div class="empty">The lap chart builds up lap by lap while the page is open on the server.</div>');
+  }
+  const { svg, scale } = positionChart(series, { width, height, maxLap, rows: Math.max(order.length, 2), bands: traceBands(h) });
+  chartReg.positions = {
+    scale,
+    tip: (lap) => {
+      const rows = series.map((x) => ({ s: x, p: x.points.find((pt) => pt[0] === lap)?.[1] })).filter((r) => r.p).sort((a, b) => a.p - b.p);
+      return `<b>${lap ? `Lap ${lap}` : 'Grid'}</b>${rows.length ? rows.map((r) => {
+        const g = grids[r.s.num], d = g && lap ? g - r.p : 0;
+        return `<div class="tip-row"><span class="tip-sw${r.s.dashed ? ' dashed' : ''}" style="border-color:${esc(r.s.color)}"></span>P${r.p} ${esc(r.s.tla)}<span>${d > 0 ? `<span class="gain-up">▲${d}</span>` : d < 0 ? `<span class="gain-down">▼${-d}</span>` : ''}</span></div>`;
+      }).join('') : '<div class="muted">No data</div>'}`;
+    },
+  };
+  const legend = `<div class="legend">${series.map((s) => `<button type="button" class="lg lg-btn${traceFocus === s.num ? ' on' : ''}" data-trace-focus="${esc(s.num)}"><span class="lg-line${s.dashed ? ' dashed' : ''}" style="border-color:${esc(s.color)}"></span>${esc(s.tla)}</button>`).join('')}</div>`;
+  setBody(key, tools, `${legend}<div class="trace-wrap">${svg}</div><p class="hint chart-note">Position at the end of each lap, starting from the grid. A dot marks where a driver retired. Shaded: safety car, VSC or red flag. Tap a driver to highlight.</p>`);
+}
+
 function chartHover(ev) {
   const svg = ev.target.closest('svg[data-chart]');
   const reg = svg && chartReg[svg.dataset.chart];
   if (!reg) return hideTip();
   const rect = svg.getBoundingClientRect();
-  const { padL, padR, W, lapMax, x } = reg.scale;
+  const { padL, padR, W, lapMax, lapMin = 1, x } = reg.scale;
   const px = ((ev.clientX - rect.left) / rect.width) * W;
-  const lap = Math.round(1 + ((px - padL) / (W - padL - padR)) * (lapMax - 1));
-  if (lap < 1 || lap > lapMax) return hideTip();
+  const lap = Math.round(lapMin + ((px - padL) / (W - padL - padR)) * (lapMax - lapMin));
+  if (lap < lapMin || lap > lapMax) return hideTip();
   hideCross();
   const cross = svg.querySelector('.rt-cross');
   cross.setAttribute('x1', x(lap)); cross.setAttribute('x2', x(lap)); cross.setAttribute('visibility', 'visible');
@@ -1587,6 +1748,8 @@ async function loadStandings(force) {
 }
 
 function renderStandings() {
+  const cover = spoilerCover(true);
+  if (cover) return setBody(cover.key, '', cover.html);
   loadStandings();
   const tools = `<div class="chips">${[['drivers', 'Drivers'], ['teams', 'Teams']].map(([v, l]) =>
     `<button type="button" class="chip-btn${standTab === v ? ' on' : ''}" data-stand="${v}">${l}</button>`).join('')}</div>`;
@@ -1675,6 +1838,8 @@ async function loadResults(sel) {
 }
 
 function renderResults() {
+  const cover = spoilerCover(false);
+  if (cover) return setBody(cover.key, '', cover.html);
   ensureSeason();
   if (!season) {
     return setBody(`rs|${seasonErr}|${seasonLoading}`, '', `<div class="empty">${seasonErr && !seasonLoading ? `Couldn't load results (${esc(seasonErr)}).` : 'Loading results…'}</div>`);
@@ -2142,6 +2307,7 @@ function openSettings() {
   $('pitLoss').value = pitLossManual || 9.5;
   renderUnits();
   renderWakeState();
+  renderSpoilState();
   showPitLoss();
   renderSettings();
   $('settings').showModal();
@@ -2193,6 +2359,15 @@ $('sessions').addEventListener('click', (e) => {
 });
 $('nextInfo').addEventListener('click', (e) => { if (e.target.closest('[data-back-live]')) backToLive(); });
 $('settings').addEventListener('click', (e) => {
+  const sb = e.target.closest('[data-spoil]');
+  if (sb) {
+    spoilerFree = sb.dataset.spoil === '1';
+    store.set('spoilerFree', spoilerFree);
+    insKey = ''; homeHtml = ''; rpMarksKey = '';
+    renderSpoilState();
+    dirty = true;
+    return;
+  }
   const wb = e.target.closest('[data-wake]');
   if (wb) {
     wakeMode = wb.dataset.wake;
@@ -2375,6 +2550,11 @@ async function updateWake() {
     renderWakeState();
   }
 }
+function renderSpoilState() {
+  for (const b of document.querySelectorAll('[data-spoil]')) b.classList.toggle('on', (b.dataset.spoil === '1') === spoilerFree);
+  const n = unseen().length;
+  $('spoilState').textContent = !spoilerFree ? 'Off' : n ? `On · hiding ${n} session${n === 1 ? '' : 's'}` : 'On · nothing to hide';
+}
 function renderWakeState() {
   for (const b of document.querySelectorAll('[data-wake]')) b.classList.toggle('on', b.dataset.wake === wakeMode);
   const el = $('wakeState');
@@ -2506,7 +2686,8 @@ applyLayout();
 const PARTS = [
   ['front page', renderHome], ['header', renderHeader], ['header', renderNext], ['next race weekend', renderWeekend], ['timing', renderTower],
   ['track map', renderMap], ['telemetry', renderTele], ['race control', renderRC], ['penalties', renderPenalties], ['team radio', renderRadio],
-  ['insights', renderInsights], ['replay', renderReplay], ['settings', () => { if ($('settings').open) renderSettings(); }],
+  ['insights', renderInsights], ['replay', renderReplay], ['settings', () => { if ($('settings').open) { renderSettings(); renderSpoilState(); } }],
+  ['spoiler-free', spoilerTick],
 ];
 const failing = new Map(); // part -> message
 function render() {

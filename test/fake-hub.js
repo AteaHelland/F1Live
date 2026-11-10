@@ -107,6 +107,16 @@ sim.on('raw', (topic, data) => {
     if (c.subscribed?.has(topic)) c.socket.write(frame(JSON.stringify({ type: 1, target: 'feed', arguments: [topic, data, new Date().toISOString()] }) + RS));
   }
 });
-setInterval(() => sim.tick(0.5), 500);
+// FAKE_SPEED=<n> runs the race n times faster; FAKE_FINISH_AFTER=<seconds> ends the session then
+// (chequered flag, then final), to test what happens after a session.
+const speed = Math.max(1, Number(process.env.FAKE_SPEED) || 1);
+const ticker = setInterval(() => sim.tick(0.5 * speed), 500);
+if (process.env.FAKE_FINISH_AFTER) {
+  setTimeout(() => {
+    clearInterval(ticker);
+    sim.emitRaw('SessionStatus', { Status: 'Finished' });
+    setTimeout(() => sim.emitRaw('SessionStatus', { Status: 'Finalised' }), 8000);
+  }, Number(process.env.FAKE_FINISH_AFTER) * 1000);
+}
 setInterval(() => { for (const c of sockets) c.socket.write(frame('{"type":6}' + RS)); }, 10000);
 server.listen(PORT, () => console.log(`fake hub on :${PORT}`));

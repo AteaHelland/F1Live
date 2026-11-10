@@ -57,6 +57,8 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - Weather: air and track temperature (with trend), humidity, wind and rain
 - Tyre strategy chart: every driver's stints by compound and length
 - Race trace: each driver's gap to the leader lap by lap, with safety car periods shaded
+- Lap chart: every driver's position lap by lap, starting from the grid, with safety car periods
+  shaded; hover a lap for the order and places gained or lost
 - Team radio clips you can play on the page
 - Telemetry for one driver: speed, gear, RPM, throttle and brake (F1 TV only); tap a driver in
   the timing tower to switch
@@ -106,7 +108,15 @@ folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeli
 charts). A replay opens paused at the start, 3 minutes before the scheduled start
 (`RECORD_LEAD`), so the result isn't shown until you get there; recording also only begins then,
 even though the live page connects 45 minutes ahead. A session still running can be replayed
-from its start too. Recordings are kept for
+from its start too. Ticks above the timeline mark the start, safety cars, virtual safety cars,
+red flags, the chequered flag and, in races, your favourite driver's pit stops; tap one, or use
+⏮ ⏭, to jump to 5 seconds before it.
+
+**Spoiler-free** (⚙ settings, per device). A qualifying, sprint or race from the last 7 days
+counts as not watched until this browser saw it finish live or played its replay past the
+chequered flag. Until then the Results and Standings tabs are covered, the final timing screen of
+that session stays behind the front page, and replay markers only appear once you've passed
+them. "Show anyway" lifts it. Recordings are kept for
 the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
 for looking back, just without the replay. `RECORD=0` turns recording off.
 
