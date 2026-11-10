@@ -905,6 +905,23 @@ function movesFor(rows) {
   return (num) => { const m = posMem.get(num); return m && now - m.at < MOVE_MS ? m.dir : 0; };
 }
 
+// Places gained or lost since the start, from the grid position F1 sends with the tyre data.
+// Pit-lane starters have no grid slot in that data, so they show nothing.
+function gridOf(num) {
+  const g = Number(state.TimingAppData?.Lines?.[num]?.GridPos);
+  return Number.isInteger(g) && g > 0 ? g : null;
+}
+function gainOf(num, l) {
+  const grid = gridOf(num), pos = Number(l?.Position);
+  if (!grid || !pos || l.Retired || l.Stopped) return null;
+  return { grid, d: grid - pos };
+}
+function gainHtml(g) {
+  if (!g) return '';
+  if (!g.d) return '<span class="gain-0">–</span>';
+  return g.d > 0 ? `<span class="gain-up">▲${g.d}</span>` : `<span class="gain-down">▼${-g.d}</span>`;
+}
+
 // The best lap shown for a driver: this part's best in qualifying, else the session best.
 const shownBest = (l, q) => q
   ? (l.KnockedOut ? lastWith(l.BestLapTimes, 'Value') : partBest(l, q.part))
@@ -954,7 +971,7 @@ function renderTower() {
   const koByPart = {};
   for (const [num, l] of ko) (koByPart[koPart(l, q)] ||= []).push(tlaOf(num));
   const koLine = ko.length
-    ? `<tr class="ko-row"><td colspan="13"><button type="button" class="ko-btn" data-ko>${Object.entries(koByPart).sort().map(([part, tlas]) => `<span><b>Out in ${esc(part)}:</b> ${tlas.map(esc).join(', ')}</span>`).join('')}<span class="ko-act">${showKO ? 'Hide ▴' : 'Show ▾'}</span></button></td></tr>`
+    ? `<tr class="ko-row"><td colspan="14"><button type="button" class="ko-btn" data-ko>${Object.entries(koByPart).sort().map(([part, tlas]) => `<span><b>Out in ${esc(part)}:</b> ${tlas.map(esc).join(', ')}</span>`).join('')}<span class="ko-act">${showKO ? 'Hide ▴' : 'Show ▾'}</span></button></td></tr>`
     : '';
   table.tBodies[0].innerHTML = shownRows.map(([num, l]) => {
     const d = drivers[num] || {};
@@ -980,6 +997,7 @@ function renderTower() {
     const dz = q?.advance && !l.KnockedOut && pos > q.advance;
     const cutRow = q?.advance && pos === q.advance;
     const w = pw?.map[num];
+    const gain = kind === 'race' ? gainOf(num, l) : null;
     const secs = list(l.Sectors);
     const stints = list(app[num]?.Stints);
     const st = stints[stints.length - 1];
@@ -990,6 +1008,7 @@ function renderTower() {
     return `<tr data-num="${esc(num)}" class="${out ? 'out' : ''}${l.InPit ? ' inpit' : ''}${num === fnum ? ' fav' : ''}${num === tnum && isLive() ? ' sel' : ''}${dz ? ' dz' : ''}${cutRow ? ' cut' : ''}${mv > 0 ? ' up' : mv < 0 ? ' down' : ''}">
       <td class="c-vis"><button type="button" class="vis${mapHidden.has(d.Tla || num) ? ' off' : ''}" data-vis="${esc(d.Tla || num)}" aria-pressed="${!mapHidden.has(d.Tla || num)}" aria-label="${mapHidden.has(d.Tla || num) ? 'Show' : 'Hide'} ${esc(d.Tla || num)} on the map">${mapHidden.has(d.Tla || num) ? EYE_OFF : EYE_ON}</button></td>
       <td class="c-pos">${esc(pg ? pg[num].pos : l.Position || '')}</td>
+      <td class="c-gain"${gain ? ` title="Started P${gain.grid}"` : ''}>${gainHtml(gain)}</td>
       <td class="c-drv"><span class="drv"><span class="bar" style="background:#${esc(d.TeamColour || '666')}"></span><span class="num">${esc(num)}</span><span class="tla">${esc(d.Tla || num)}</span>${penBadge(num)}<span class="team">${esc(d.TeamName || '')}</span></span></td>
       <td class="c-gap${leadCls(gap)}">${out ? `<span class="badge out">${l.KnockedOut && q ? esc(koPart(l, q)) : 'OUT'}</span>` : esc(gap)}</td>
       <td class="c-int${leadCls(int)}">${out ? '' : esc(int)}</td>
@@ -1030,6 +1049,8 @@ function renderFavBar(rows, kind) {
   else {
     if (ahead) parts.push(`<span class="fb-gap"><span class="muted">Ahead</span> <b>${esc(tlaOf(ahead[0]))}</b> ${esc(gapOf(l) || '–')}</span>`);
     if (behind && !(behind[1].Retired || behind[1].Stopped)) parts.push(`<span class="fb-gap"><span class="muted">Behind</span> <b>${esc(tlaOf(behind[0]))}</b> ${esc(gapOf(behind[1]) || '–')}</span>`);
+    const gain = kind === 'race' ? gainOf(fnum, l) : null;
+    if (gain) parts.push(`<span class="fb-gap"><span class="muted">Started</span> P${gain.grid}${gain.d ? ` ${gainHtml(gain)}` : ''}</span>`);
     if (st) parts.push(`<span class="fb-gap"><span class="muted">Tyre</span> <b>${LETTER[comp] || '?'}</b> ${esc(st.TotalLaps ?? '')} laps</span>`);
     if (l.LastLapTime?.Value) parts.push(`<span class="fb-gap"><span class="muted">Last</span> ${esc(l.LastLapTime.Value)}</span>`);
     const open = penalties().filter((p) => p.car === fnum && ['pending', 'added'].includes(penStatus(p)));

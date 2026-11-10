@@ -43,6 +43,8 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - The session's fastest lap in purple under Best (in qualifying, the fastest of the current part)
 - In races and sprints, a green box around a driver who just moved up the order and an orange
   one around a driver who dropped back; each lasts 8 seconds
+- In races and sprints, places gained (▲ green) or lost (▼ red) since the start, next to the
+  position; hover for the grid slot. Pit-lane starters show nothing, as F1 gives them no grid slot
 - Tyre compound, tyre age and pit stops
 - Battles (races and sprints): every car within a second of the car ahead, whether the gap is
   closing or growing per lap, both cars' tyres, and how many laps they've been together

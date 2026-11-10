@@ -160,6 +160,13 @@ td.lead { color: var(--muted); font-size: 13px; }
 .badge { font-size: 11px; font-weight: 900; letter-spacing: .5px; padding: 1px 5px; border-radius: 4px; background: var(--orange); color: #111; }
 .badge.out { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
 .c-pit { width: 34px; text-align: center !important; color: var(--muted); }
+/* places gained or lost since the start (races only) */
+.c-gain { width: 34px; text-align: center !important; font-size: 13px; font-weight: 700; padding-left: 0 !important; }
+td.c-gain { cursor: help; }
+.tower:not([data-kind="race"]) .c-gain { display: none; }
+.gain-up { color: var(--pb); }
+.gain-down { color: var(--red); }
+.gain-0 { color: var(--muted); font-weight: 500; }
 
 /* track map */
 .map-wrap { position: relative; padding: 8px; }
