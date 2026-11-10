@@ -4,8 +4,16 @@ import http from 'node:http';
 import { demoStandings } from '../lib/demo.js';
 
 const PORT = Number(process.env.PORT || 3099);
+// FAKE_STANDINGS_ROUND=<n>: the round the standings are "after" (default 19), to test the title maths.
+const STAND_ROUND = String(process.env.FAKE_STANDINGS_ROUND || 19);
 const year = new Date().getUTCFullYear();
 const st = demoStandings();
+// FAKE_TITLE_GAP=<points>: second place that far behind the leader, third 20 further back, and
+// FAKE_NO_SPRINT=1: no sprint weekends, to test a last-race title decider.
+if (process.env.FAKE_TITLE_GAP) {
+  st.drivers[1].points = st.drivers[0].points - Number(process.env.FAKE_TITLE_GAP);
+  st.drivers[2].points = st.drivers[1].points - 20;
+}
 const drivers = st.drivers.map((d) => ({
   driverId: d.code.toLowerCase(), permanentNumber: d.number, code: d.code,
   givenName: d.name.split(' ')[0], familyName: d.name.split(' ').slice(1).join(' '),
@@ -16,7 +24,7 @@ const races = Array.from({ length: 22 }, (_, i) => {
   const date = new Date(Date.UTC(year, 2, 8 + i * 12)).toISOString().slice(0, 10);
   return {
     season: String(year), round: String(i + 1), raceName: `Test ${['Bahrain', 'Saudi', 'Australian', 'Japanese', 'Chinese', 'Miami', 'Monaco', 'Spanish', 'Canadian', 'Austrian', 'British', 'Belgian', 'Hungarian', 'Dutch', 'Italian', 'Madrid', 'Azerbaijan', 'Singapore', 'US', 'Mexico City', 'Brazilian', 'Abu Dhabi'][i]} Grand Prix`,
-    date, time: '14:00:00Z', ...(i % 4 === 1 ? { Sprint: { date, time: '10:00:00Z' } } : {}),
+    date, time: '14:00:00Z', ...(i % 4 === 1 && process.env.FAKE_NO_SPRINT !== '1' ? { Sprint: { date, time: '10:00:00Z' } } : {}),
   };
 });
 
@@ -74,9 +82,9 @@ http.createServer((req, res) => {
   let out = null;
   let m;
   if (p === '/current/driverstandings') {
-    out = wrap({ StandingsTable: { season: String(year), StandingsLists: [{ season: String(year), round: '19', DriverStandings: st.drivers.map((d, i) => ({ position: String(d.pos), positionText: String(d.pos), points: String(d.points), wins: String(d.wins), Driver: drivers[i], Constructors: [ctor(d.team)] })) }] } });
+    out = wrap({ StandingsTable: { season: String(year), StandingsLists: [{ season: String(year), round: STAND_ROUND, DriverStandings: st.drivers.map((d, i) => ({ position: String(d.pos), positionText: String(d.pos), points: String(d.points), wins: String(d.wins), Driver: drivers[i], Constructors: [ctor(d.team)] })) }] } });
   } else if (p === '/current/constructorstandings') {
-    out = wrap({ StandingsTable: { season: String(year), StandingsLists: [{ season: String(year), round: '19', ConstructorStandings: st.teams.map((t) => ({ position: String(t.pos), positionText: String(t.pos), points: String(t.points), wins: String(t.wins), Constructor: ctor(t.name) })) }] } });
+    out = wrap({ StandingsTable: { season: String(year), StandingsLists: [{ season: String(year), round: STAND_ROUND, ConstructorStandings: st.teams.map((t) => ({ position: String(t.pos), positionText: String(t.pos), points: String(t.points), wins: String(t.wins), Constructor: ctor(t.name) })) }] } });
   } else if ((m = /^\/(\d{4})\/races$/.exec(p))) {
     out = wrap({ RaceTable: { season: m[1], Races: Number(m[1]) === year ? races : [] } });
   } else if ((m = /^\/(\d{4})\/(\d+)\/(results|sprint|qualifying)$/.exec(p))) {

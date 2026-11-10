@@ -33,6 +33,14 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 **Between race weekends**
 - The next race weekend with every session in your local time, plus a countdown
 - Championship standings for drivers and teams
+- Title fight: above the standings, who can still win each title and what the leader needs to
+  settle it at the next round, with a finishing-position table for a last-race decider. During
+  a race it follows the live points ("as it stands"). Level on points (decided on wins) is left out
+- Teammates: a season head-to-head for every pair of teammates (qualifying, races both finished,
+  and the typical qualifying gap), under Standings
+- A summary of each saved session on the front page: top three, fastest lap, biggest gainer,
+  safety cars and retirements. It stays behind a "Show" button for the first 24 hours, and after
+  that only while spoiler-free is hiding that session
 - Results of every race, sprint and qualifying this season
 - A calendar feed (`/calendar.ics`) to subscribe to from your phone or computer
 
@@ -48,6 +56,8 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - Tyre compound, tyre age and pit stops
 - Battles (races and sprints): every car within a second of the car ahead, whether the gap is
   closing or growing per lap, both cars' tyres, and how many laps they've been together
+- Undercut watch, under Battles: a car within 2.5 s of the one ahead, both on tyres old enough
+  to stop, and where it would rejoin if it pitted now (clear air or traffic). A guide, not a prediction
 - Stint pace: average of clean laps on each set of tyres, best lap, and how lap times drift
   through the stint (lap 1, out/in laps, safety car laps and slow outliers left out)
 - Penalties from the stewards (time, drive-through, stop-and-go, grid drops): a badge next to the
@@ -118,7 +128,9 @@ red flags, the chequered flag and, in races, your favourite driver's pit stops; 
 counts as not watched until this browser saw it finish live or played its replay past the
 chequered flag. Until then the Results and Standings tabs are covered, the final timing screen of
 that session stays behind the front page, and replay markers only appear once you've passed
-them. "Show anyway" lifts it. Recordings are kept for
+them. "Show anyway" lifts it. The list of watched sessions is kept on the server
+(`data/seen.json`) and shared by every device, so a race watched on the TV counts on your phone;
+the setting itself stays per device. Recordings are kept for
 the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
 for looking back, just without the replay. `RECORD=0` turns recording off.
 

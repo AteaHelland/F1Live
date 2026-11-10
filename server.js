@@ -15,6 +15,8 @@ import { Jolpica } from './lib/jolpica.js';
 import { buildIcs } from './lib/ics.js';
 import { Archive } from './lib/archive.js';
 import { Recorder, Player } from './lib/recorder.js';
+import { summarize } from './lib/summary.js';
+import { teammates } from './lib/teammates.js';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC = path.join(ROOT, 'public');
@@ -225,6 +227,47 @@ async function circuit(key, year) {
   throw new Error('circuit not found');
 }
 
+// ---------- sessions watched (spoiler-free), shared by every device ----------
+const SEEN_FILE = path.join(DATA, 'seen.json');
+let seen = {};
+try { seen = JSON.parse(await fs.readFile(SEEN_FILE, 'utf8')) || {}; } catch {}
+
+// ---------- session summaries for the front page ----------
+const summaries = new Map(); // id → { savedAt, summary }
+async function summaryOf(id) {
+  const d = await archive.load(id);
+  const hit = summaries.get(d.id);
+  if (hit && hit.savedAt === d.info?.savedAt) return hit.summary;
+  const summary = summarize(d.state, d.history) || {};
+  summaries.set(d.id, { savedAt: d.info?.savedAt, summary });
+  if (summaries.size > 300) summaries.delete(summaries.keys().next().value);
+  return summary;
+}
+
+// ---------- teammates over the season ----------
+// Built from every finished round's qualifying and race results (cached on disk by Jolpica),
+// one round after the other, and kept for half an hour.
+const mates = new Map(); // year → { at, promise }
+function teammatesOf(year) {
+  const hit = mates.get(year);
+  if (hit && Date.now() - hit.at < 30 * 60000) return hit.promise;
+  const promise = (async () => {
+    const season = await jolpica.season(year);
+    const done = season.races.filter((r) => r.done);
+    const rounds = [];
+    for (const r of done) {
+      // Older rounds are settled: a week-old copy is fine. The latest can still change.
+      const ttl = r === done[done.length - 1] ? 30 * 60000 : 7 * 86400000;
+      const [q, race] = [await jolpica.results(year, r.round, 'qualifying', ttl).catch(() => null), await jolpica.results(year, r.round, 'race', ttl).catch(() => null)];
+      rounds.push({ qualifying: q?.rows || [], race: race?.rows || [] });
+    }
+    return { season: Number(year), rounds: done.length, pairs: teammates(rounds) };
+  })();
+  mates.set(year, { at: Date.now(), promise });
+  promise.catch(() => mates.delete(year));
+  return promise;
+}
+
 // ---------- HTTP ----------
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json' };
 
@@ -264,6 +307,31 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/api/session') {
       try { return json(res, 200, await archive.load(url.searchParams.get('id'))); }
       catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'session not found' : e.message }); }
+    }
+    if (url.pathname === '/api/summary') {
+      try { return json(res, 200, await summaryOf(url.searchParams.get('id'))); }
+      catch (e) { return json(res, 404, { error: e.code === 'ENOENT' ? 'session not found' : e.message }); }
+    }
+    if (url.pathname === '/api/seen' && req.method === 'POST') {
+      let ids = [];
+      try { ids = JSON.parse(await readBody(req)).ids; } catch {}
+      if (!Array.isArray(ids)) return json(res, 400, { error: 'ids expected' });
+      let changed = false;
+      for (const id of ids.slice(0, 200)) {
+        if (typeof id === 'string' && id.length < 200 && !seen[id]) { seen[id] = 1; changed = true; }
+      }
+      if (changed) {
+        await fs.writeFile(SEEN_FILE, JSON.stringify(seen));
+        broadcast('seen', seen);
+      }
+      return json(res, 200, seen);
+    }
+    if (url.pathname === '/api/seen') return json(res, 200, seen);
+    if (url.pathname === '/api/teammates') {
+      const year = url.searchParams.get('year') || String(new Date().getUTCFullYear());
+      if (!/^\d{4}$/.test(year)) return json(res, 400, { error: 'bad year' });
+      try { return json(res, 200, await teammatesOf(year)); }
+      catch (e) { return json(res, 502, { error: e.message }); }
     }
     if (url.pathname === '/api/standings') {
       if (DEMO) return json(res, 200, demoStandings());

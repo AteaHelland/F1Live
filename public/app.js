@@ -1,4 +1,5 @@
 import { applyItem, clone, list, sessionKey, stintRanges } from './merge.js';
+import { titleFight, RACE_PTS, SPRINT_PTS } from './title.js';
 import { strategyChart, raceTrace, positionChart, sparkline, teleTrace, lapChart, COMPOUND_LETTER } from './charts.js';
 
 const $ = (id) => document.getElementById(id);
@@ -65,6 +66,7 @@ const shownNow = () => replay ? replay.pos : Date.now() + offset - delay * 1000;
 function connect() {
   if (es) es.close();
   es = new EventSource('api/stream');
+  es.addEventListener('seen', (e) => mergeSeen(JSON.parse(e.data)));
   es.addEventListener('sessions', () => { sessionList = null; dirty = true; if ($('sessions').open) openSessions(); });
   es.addEventListener('init', (e) => {
     const d = JSON.parse(e.data);
@@ -131,6 +133,26 @@ const homeMode = () => !viewing && !document.body.classList.contains('editing') 
 // appear once passed, and the final timing screen of that session stays behind the front page.
 let spoilerFree = store.get('spoilerFree', false);
 let seen = store.get('seen', {}); // session id → 1
+// The watched list is kept on the server too, so a session watched on one device counts on all.
+function mergeSeen(map) {
+  let changed = false;
+  for (const id of Object.keys(map || {})) if (!seen[id]) { seen[id] = 1; changed = true; }
+  if (!changed) return;
+  store.set('seen', seen);
+  insKey = ''; rpMarksKey = ''; homeHtml = '';
+  dirty = true;
+}
+function pushSeen(ids) {
+  if (!ids.length || status?.demo) return;
+  fetch('api/seen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) })
+    .then((r) => (r.ok ? r.json() : null)).then((m) => m && mergeSeen(m)).catch(() => {});
+}
+// On load: take the server's list, and hand over what only this browser knows.
+fetch('api/seen', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).then((m) => {
+  if (!m) return;
+  pushSeen(Object.keys(seen).filter((id) => !m[id]));
+  mergeSeen(m);
+}).catch(() => {});
 const SPOIL_MS = 7 * 86400000;
 const OVER = ['Finished', 'Finalised', 'Ends'];
 let liveWatch = { key: null, at: 0 }; // the session seen running on this page, and when last
@@ -145,12 +167,13 @@ function unseen() {
 // Mark a session watched (unless `self` is false), and every session that started before it.
 function markSeen(id, self = true) {
   const me = sessionList?.find((s) => s.id === id);
-  let changed = false;
-  const set = (x) => { if (!seen[x]) { seen[x] = 1; changed = true; } };
+  const added = [];
+  const set = (x) => { if (!seen[x]) { seen[x] = 1; added.push(x); } };
   if (self) set(id);
   for (const s of sessionList || []) if (me?.start && s.start && s.start < me.start) set(s.id);
-  if (!changed) return;
+  if (!added.length) return;
   store.set('seen', seen);
+  pushSeen(added);
   insKey = ''; rpMarksKey = '';
   dirty = true;
 }
@@ -183,6 +206,49 @@ function spoilerTick() {
   }
 }
 const sesLabel = (s) => `${s.name} (${s.circuit})`;
+
+// ---------- session summaries (front page) ----------
+// A line per saved session: who was on top, fastest lap, biggest gainer, safety cars.
+// Always behind a tap for the first 24 hours; after that only while spoiler-free hides it.
+const SUMMARY_HOLD_MS = 24 * 3600000;
+let revealed = store.get('revealed', {}); // session id → 1: summaries shown on request
+const sumCache = new Map(); // id → summary | { loading } | { error }
+function summaryHidden(s) {
+  if (revealed[s.id]) return null;
+  if (s.start && Date.now() - Date.parse(s.start) < SUMMARY_HOLD_MS) return 'Hidden for the first 24 hours';
+  if (unseen().some((u) => u.id === s.id)) return 'Hidden until you\'ve watched it';
+  return null;
+}
+function loadSummary(s) {
+  const key = `${s.id}|${s.savedAt || ''}`;
+  if (sumCache.has(key)) return sumCache.get(key);
+  sumCache.set(key, { loading: true });
+  getJson(`api/summary?id=${encodeURIComponent(s.id)}`)
+    .then((d) => sumCache.set(key, d), (e) => sumCache.set(key, { error: e.message }))
+    .finally(() => { dirty = true; });
+  return sumCache.get(key);
+}
+const sumDrv = (d) => `<span class="sm-drv"><span class="bar" style="background:#${esc(d.color || '666')}"></span>${esc(d.tla)}</span>`;
+function summaryHtml(s) {
+  const why = summaryHidden(s);
+  if (why) return `<span class="sm-hidden">🙈 ${why}</span><button type="button" class="btn sm" data-sum-show="${esc(s.id)}">Show</button>`;
+  const d = loadSummary(s);
+  if (d.loading) return '<span class="muted">Loading…</span>';
+  if (d.error || !d.top?.length) return '<span class="muted">No summary for this session.</span>';
+  const parts = [];
+  if (d.kind === 'race') {
+    parts.push(`<span class="sm-item">🏆 ${d.top.map((x, i) => `${i ? `<span class="muted">${i + 1}</span> ` : ''}${sumDrv(x)}`).join(' ')}</span>`);
+    if (d.fastest) parts.push(`<span class="sm-item"><span class="muted">Fastest lap</span> ${sumDrv(d.fastest)} ${esc(d.fastest.time)}</span>`);
+    if (d.gainer) parts.push(`<span class="sm-item"><span class="muted">Biggest gainer</span> ${sumDrv(d.gainer)} <span class="gain-up">▲${d.gainer.places}</span> <span class="muted">P${d.gainer.grid} → P${d.gainer.pos}</span></span>`);
+    const n = (k, one, many) => (d[k] ? `${d[k]} ${d[k] === 1 ? one : many}` : '');
+    const ev = [n('sc', 'safety car', 'safety cars'), n('vsc', 'VSC', 'VSCs'), n('red', 'red flag', 'red flags'), n('retired', 'retirement', 'retirements')].filter(Boolean);
+    parts.push(`<span class="sm-item muted">${ev.length ? ev.join(' · ') : 'No safety car, no retirements'}</span>`);
+  } else {
+    parts.push(`<span class="sm-item"><span class="muted">${d.kind === 'qualifying' ? 'Pole' : 'Fastest'}</span> ${sumDrv(d.top[0])} ${esc(d.top[0].time || '')}</span>`);
+    if (d.top.length > 1) parts.push(`<span class="sm-item">${d.top.slice(1).map((x, i) => `<span class="muted">${i + 2}</span> ${sumDrv(x)}`).join(' ')}</span>`);
+  }
+  return parts.join('');
+}
 // What covers a results or standings view, or null. `racesOnly`: qualifying doesn't spoil it.
 function spoilerCover(racesOnly) {
   const u = unseen().filter((s) => !racesOnly || ['R', 'S'].includes(s.code));
@@ -247,6 +313,7 @@ function renderHome() {
             <span class="hm-meta">${s.start ? esc(fmtDay.format(new Date(s.start))) : ''}</span>
             <span class="hm-act${s.recorded ? ' can-play' : ''}">${s.recorded ? '▶ Replay' : 'Final results'}</span>
           </button>`).join('')}</div>
+        <ul class="hm-sum">${w.list.slice().reverse().map((s) => `<li><b>${esc(s.name)}</b><span class="sm-body">${summaryHtml(s)}</span></li>`).join('')}</ul>
       </div>`).join('') + (weekends.length > shown.length ? `<button type="button" class="btn sm hm-more" data-home-more>Show ${weekends.length - shown.length} older weekend${weekends.length - shown.length === 1 ? '' : 's'}</button>` : '');
 
   const hidden = unseen();
@@ -268,6 +335,8 @@ async function loadSessionList() {
 }
 
 $('home').addEventListener('click', (e) => {
+  const show = e.target.closest('[data-sum-show]');
+  if (show) { revealed[show.dataset.sumShow] = 1; store.set('revealed', revealed); dirty = true; return; }
   const ses = e.target.closest('[data-ses]');
   if (ses) { openArchive(ses.dataset.ses); return; }
   if (e.target.closest('[data-home-dash]')) { homeDismissed = true; dirty = true; return; }
@@ -861,8 +930,8 @@ function parseLap(v) {
 
 // Where each driver would rejoin if they pitted now: their gap to the leader plus the pit loss
 // (less under a safety car or VSC), placed among the cars on the lead lap.
-function pitWindow() {
-  if (!showPit || !isRaceSession() || !hasSession()) return null;
+function pitWindow(always) {
+  if ((!showPit && !always) || !isRaceSession() || !hasSession()) return null;
   const cars = runningOrder().map(([n, l]) => ({ n, l, g: gapSec(l) }))
     .filter((c) => c.g != null && !c.l.Retired && !c.l.Stopped)
     .sort((a, b) => a.g - b.g);
@@ -1702,8 +1771,6 @@ function chartHover(ev) {
 }
 
 // Points for the running order, if this session counts.
-const RACE_PTS = [25, 18, 15, 12, 10, 8, 6, 4, 2, 1];
-const SPRINT_PTS = [8, 7, 6, 5, 4, 3, 2, 1];
 function projection() {
   if (!standings || !isRaceSession() || viewing) return null;
   if (!['Started', 'Aborted', 'Finished', 'Finalised', 'Ends'].includes(sessionStatus())) return null;
@@ -1736,6 +1803,113 @@ function projection() {
   return { byTla, label: `${sprint ? 'Sprint' : 'Race'} ${isLive() ? 'as it runs' : '(provisional)'}` };
 }
 
+// Sessions that can still change the championship after the points on screen, or the name of
+// a session that has been run but isn't in the standings yet.
+function titleRemaining(proj) {
+  if (!standings || standings.demo || !season || season.season !== standings.season) return null;
+  const wk = schedule?.next;
+  const now = Date.now();
+  const ended = (key) => { const x = wk?.sessions?.find((y) => y.key === key); return x ? now > Date.parse(x.start) + x.minutes * 60000 : false; };
+  const liveRound = proj ? wk?.round : null;
+  const liveSprint = Boolean(proj) && /sprint/i.test(sessionName() || '');
+  const list = [];
+  let pending = null;
+  for (const r of season.races) {
+    if (r.round < standings.round) continue;
+    const race = { round: r.round, name: r.name, kind: 'race' };
+    if (r.round === standings.round) {
+      // In the standings already, unless it's a sprint weekend with the race still to come.
+      if (r.hasSprint && wk?.round === r.round && !ended('Race') && liveRound !== r.round) list.push(race);
+      continue;
+    }
+    if (r.round === liveRound) { if (liveSprint) list.push(race); continue; } // the live session counts through the Live column
+    if (r.done) { pending = r.name; continue; }
+    if (r.hasSprint) {
+      if (wk?.round === r.round && ended('Sprint')) pending = `${r.name} sprint`;
+      else list.push({ ...race, kind: 'sprint' });
+    }
+    list.push(race);
+  }
+  return { list, pending };
+}
+const ordinal = (p) => (p >= 11 ? 'outside the points' : p === 1 ? '1st' : p === 2 ? '2nd' : p === 3 ? '3rd' : `${p}th`);
+// The box above the standings. rows: [{ label, pts }] in order, with live points added.
+function titleBox(rows, who, proj) {
+  const rem = titleRemaining(proj);
+  if (!rem || rows.length < 2) return '';
+  const what = who === 'driver' ? "drivers' title" : "constructors' title";
+  if (rem.pending) return `<div class="title-box"><div class="tb-head">Title fight</div><p class="hint">Waiting for the results of the ${esc(rem.pending)} to reach the standings before the maths can be shown.</p></div>`;
+  const t = titleFight(rows, rem.list, who);
+  if (!t) return '';
+  const pts = (n) => `${+n.toFixed(1)} point${n === 1 ? '' : 's'}`;
+  const L = `<b>${esc(t.leader.label)}</b>`;
+  const lines = [];
+  if (t.decided) {
+    lines.push(`<p class="tb-main">🏆 ${proj ? 'As it stands, ' : ''}${L} ${proj ? 'wins' : 'has won'} the ${standings.season} ${what}${t.left ? `: ${pts(t.lead)} clear with ${pts(t.left)} left to win` : ''}.</p>`);
+    return `<div class="title-box won"><div class="tb-head">Title fight</div>${lines.join('')}</div>`;
+  }
+  const races = rem.list.filter((x) => x.kind === 'race').length, sprints = rem.list.length - races;
+  const closest = t.vs[0];
+  lines.push(`<p class="tb-main">${proj ? 'As it stands: ' : ''}${L} leads <b>${esc(closest.rival.label)}</b> by ${pts(closest.lead)}, with ${pts(t.left)} left to win (${races} race${races === 1 ? '' : 's'}${sprints ? `, ${sprints} sprint${sprints === 1 ? '' : 's'}` : ''}).</p>`);
+  if (t.vs.length > 1) lines.push(`<p class="hint">Still in it: ${t.vs.map((v) => `${esc(v.rival.label)} (−${+v.lead.toFixed(1)})`).join(', ')}.</p>`);
+  const where = `the ${esc(t.next.name)}${t.weekend.length > 1 ? ' weekend (sprint and race)' : ''}`;
+  if (!t.canClinch) {
+    lines.push(`<p>It can't be settled at ${where}: ${L} would need to outscore ${esc(closest.rival.label)} by ${closest.need}, and only ${t.weekendMax} are on offer.</p>`);
+  } else {
+    lines.push(`<p>${L} is champion at ${where} ${t.vs.slice(0, 3).map((v) => (v.need > 0
+      ? `by outscoring <b>${esc(v.rival.label)}</b> by ${pts(v.need)} or more`
+      : `unless <b>${esc(v.rival.label)}</b> outscores ${who === 'driver' ? 'them' : 'it'} by ${pts(1 - v.need)} or more`)).join(', and ')}.</p>`);
+    if (t.table) {
+      const shown = t.vs.slice(0, 3);
+      lines.push(`<div class="table-wrap"><table class="tbl tb-tbl"><thead><tr><th>If ${esc(t.leader.label)} finishes</th>${shown.map((v) => `<th>${esc(v.rival.label)} must finish</th>`).join('')}</tr></thead>
+        <tbody>${t.table.map((r) => `<tr><td class="b">${ordinal(r.pos)}</td>${r.cells.slice(0, 3).map((c) => `<td>${c === 0 ? '<span class="muted">anywhere</span>' : c >= 11 ? 'outside the points' : `${ordinal(c)} or lower`}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`);
+    }
+  }
+  lines.push('<p class="hint">Level on points is decided on wins, which this leaves out: the leader has to end up clear.</p>');
+  return `<div class="title-box"><div class="tb-head">Title fight</div>${lines.join('')}</div>`;
+}
+
+// ---------- teammates over the season ----------
+let mates = null, matesErr = null, matesAt = 0;
+async function loadMates() {
+  if ((mates || matesErr) && Date.now() - matesAt < 10 * 60000) return;
+  if (!standings?.season || matesAt === -1) return;
+  matesAt = -1; // loading
+  try { mates = await getJson(`api/teammates?year=${standings.season}`); matesErr = null; }
+  catch (e) { matesErr = e.message; }
+  matesAt = Date.now();
+  insKey = '';
+  dirty = true;
+}
+function renderMates(tools, colorFor) {
+  if (standings.demo) return setBody('tm|demo', tools, '<div class="empty">Teammate comparisons need real results; this is demo data.</div>');
+  loadMates();
+  if (!mates) return setBody(`tm|${matesErr}`, tools, `<div class="empty">${matesErr ? `Couldn't load the results (${esc(matesErr)}).` : 'Adding up every round of the season… the first time takes a little while.'}</div>`);
+  // Teams in championship order; within a pair, the driver ahead in qualifying on the left.
+  const rank = Object.fromEntries(standings.teams.map((t, i) => [t.name, i]));
+  const pairs = mates.pairs.map((p) => (p.quali.b > p.quali.a
+    ? { ...p, a: p.b, b: p.a, quali: { a: p.quali.b, b: p.quali.a }, race: { a: p.race.b, b: p.race.a }, dnf: { a: p.dnf.b, b: p.dnf.a }, gap: p.gap == null ? null : -p.gap }
+    : p)).sort((x, y) => (rank[x.team] ?? 99) - (rank[y.team] ?? 99) || y.rounds - x.rounds);
+  const key = `tm|${JSON.stringify(pairs)}|${fav}`;
+  const score = (s) => {
+    const n = s.a + s.b;
+    return `<span class="tm-score"><b class="${s.a > s.b ? 'lead' : ''}">${s.a}</b><span class="tm-bar"><i style="width:${n ? (s.a / n) * 100 : 50}%"></i></span><b class="${s.b > s.a ? 'lead' : ''}">${s.b}</b></span>`;
+  };
+  const html = `<div class="table-wrap"><table class="tbl tm-tbl">
+    <thead><tr><th>Team</th><th class="num-c">Driver</th><th class="tm-c">Qualifying</th><th class="tm-c">Race</th><th>Driver</th><th class="num-c hide-sm">Quali gap</th><th class="num-c hide-sm">Rounds</th></tr></thead>
+    <tbody>${pairs.map((p) => `<tr class="${fav && (p.a.code === fav || p.b.code === fav) ? 'fav' : ''}">
+      <td><span class="drv"><span class="bar" style="background:${esc(colorFor(p.a.code, p.team))}"></span><span class="team">${esc(p.team)}</span></span></td>
+      <td class="num-c b" title="${esc(p.a.name)}">${esc(p.a.code)}</td>
+      <td class="tm-c">${score(p.quali)}</td>
+      <td class="tm-c">${score(p.race)}</td>
+      <td class="b" title="${esc(p.b.name)}">${esc(p.b.code)}</td>
+      <td class="num-c hide-sm muted">${p.gap == null ? '' : `${esc(p.gap >= 0 ? p.a.code : p.b.code)} ${Math.abs(p.gap).toFixed(3)} s`}</td>
+      <td class="num-c hide-sm muted">${p.rounds}</td>
+    </tr>`).join('')}</tbody></table></div>
+    <p class="hint chart-note">After ${mates.rounds} rounds of ${mates.season}. Qualifying: who qualified ahead. Race: who finished ahead, counting only races both were classified in. Quali gap: the typical (median) gap, measured in the last part both drivers took part in, and who it favours.</p>`;
+  setBody(key, tools, html);
+}
+
 async function loadStandings(force) {
   if (!force && standings && Date.now() - standingsAt < 10 * 60000) return;
   standingsAt = Date.now();
@@ -1753,7 +1927,7 @@ function renderStandings() {
   const cover = spoilerCover(true);
   if (cover) return setBody(cover.key, '', cover.html);
   loadStandings();
-  const tools = `<div class="chips">${[['drivers', 'Drivers'], ['teams', 'Teams']].map(([v, l]) =>
+  const tools = `<div class="chips">${[['drivers', 'Drivers'], ['teams', 'Teams'], ['mates', 'Teammates']].map(([v, l]) =>
     `<button type="button" class="chip-btn${standTab === v ? ' on' : ''}" data-stand="${v}">${l}</button>`).join('')}</div>`;
   if (!standings) {
     return setBody(`sd|${standingsErr}`, tools, `<div class="empty">${standingsErr ? `Couldn't load the standings (${esc(standingsErr)}).` : 'Loading standings…'}</div>`);
@@ -1762,6 +1936,11 @@ function renderStandings() {
   const teamColor = {};
   for (const d of Object.values(DL())) if (d?.TeamName) teamColor[d.TeamName] = `#${d.TeamColour}`;
   const colorFor = (code, team) => { const n = numOfTla(code); return n ? colorOf(n) : teamColor[team] || 'var(--line)'; };
+  if (standTab === 'mates') {
+    const c2 = spoilerCover(false); // qualifying results are in it too
+    return c2 ? setBody(c2.key, tools, c2.html) : renderMates(tools, colorFor);
+  }
+  ensureSeason();
   let rows;
   if (standTab === 'drivers') {
     rows = standings.drivers.map((d) => ({ ...d, add: proj ? proj.byTla[d.code] || 0 : 0, color: colorFor(d.code, d.team), label: d.code || d.name, sub: d.team }));
@@ -1777,9 +1956,10 @@ function renderStandings() {
       .sort((a, b) => b.total - a.total || a.pos - b.pos)
       .map((r, i) => ({ ...r, newPos: i + 1 }));
   }
-  const key = `sd|${standTab}|${JSON.stringify(rows)}|${fav}|${proj?.label}`;
+  const box = titleBox(rows.map((r) => ({ label: r.label, pts: proj ? r.total : r.points })), standTab === 'drivers' ? 'driver' : 'team', proj);
+  const key = `sd|${standTab}|${JSON.stringify(rows)}|${fav}|${proj?.label}|${box}`;
   const leader = rows[0] ? (proj ? rows[0].total : rows[0].points) : 0;
-  const html = `<div class="table-wrap"><table class="tbl">
+  const html = `${box}<div class="table-wrap"><table class="tbl">
     <thead><tr><th class="num-c">P</th><th>${standTab === 'drivers' ? 'Driver' : 'Team'}</th>${proj ? `<th class="num-c" title="${esc(proj.label)}">Live</th>` : ''}<th class="num-c">Pts</th><th class="num-c hide-sm">Gap</th><th class="num-c hide-sm">Wins</th></tr></thead>
     <tbody>${rows.map((r) => {
       const pos = proj ? r.newPos : r.pos;
@@ -1921,6 +2101,9 @@ function renderPits() {
 // Race: every car within a second of the car ahead, and whether the gap is shrinking.
 // The trend comes from the gaps to the leader logged at the end of each lap.
 const BATTLE_S = 1.0;
+// Undercut watch: gap to the car ahead (s), minimum tyre ages (laps), laps that must be left,
+// and the gap to the next car after the stop that counts as clear air (s).
+const UNDERCUT = { gap: 2.5, ownAge: 8, theirAge: 5, lapsLeft: 6, clearAir: 1.5 };
 const parseIntv = (v) => { const m = /^\+?(\d+(?:\.\d+)?)$/.exec(String(v ?? '').trim()); return m ? Number(m[1]) : null; };
 
 function renderBattles() {
@@ -1946,8 +2129,32 @@ function renderBattles() {
     const stint = (n) => { const st = list(app[n]?.Stints); const x = st[st.length - 1]; return x ? { c: String(x.Compound || '').toUpperCase(), age: x.TotalLaps } : null; };
     battles.push({ num, ahead, pos: Number(l.Position), iv, rate, together, me: stint(num), them: stint(ahead) });
   }
-  const key = `bt|${JSON.stringify(battles)}|${fnum}`;
-  if (!battles.length) return setBody(key, '', `<div class="empty">No cars within ${BATTLE_S.toFixed(0)} second of each other right now.</div>`);
+  // Undercut watch: a car close enough behind that stopping first could get it ahead. Both on
+  // tyres old enough for a stop to be likely, under green, with laps left to make it pay.
+  const under = [];
+  const lc = state.LapCount || {};
+  const lapsLeft = (Number(lc.TotalLaps) || 0) - (Number(lc.CurrentLap) || 0);
+  const green = ['1', '2', undefined].includes(state.TrackStatus?.Status);
+  const pw = green && lapsLeft >= UNDERCUT.lapsLeft ? pitWindow(true) : null;
+  const stintOf = (n) => { const st = list(app[n]?.Stints); const x = st[st.length - 1]; return x ? { c: String(x.Compound || '').toUpperCase(), age: Number(x.TotalLaps) || 0 } : null; };
+  for (let i = 1; pw && i < order.length; i++) {
+    const [num, l] = order[i], [ahead, la] = order[i - 1];
+    const iv = parseIntv(l.IntervalToPositionAhead?.Value);
+    const me = stintOf(num), them = stintOf(ahead), w = pw.map[num];
+    if (iv == null || iv > UNDERCUT.gap || l.InPit || la.InPit || !me || !them || !w) continue;
+    if (me.age < UNDERCUT.ownAge || them.age < UNDERCUT.theirAge) continue;
+    const clear = !w.ahead || w.ahead.d >= UNDERCUT.clearAir;
+    under.push({ num, ahead, iv, me, them, pos: w.pos, clear, traffic: w.ahead ? { n: w.ahead.n, d: w.ahead.d } : null });
+  }
+  const key = `bt|${JSON.stringify(battles)}|${JSON.stringify(under)}|${fnum}`;
+  const drvU = (n) => `<span class="drv"><span class="bar" style="background:${colorOf(n)}"></span><span class="tla">${esc(tlaOf(n))}</span></span>`;
+  const underHtml = under.length ? `<h3 class="sub-h">Undercut watch</h3><div class="uc-list">${under.map((u) => `<div class="uc${u.num === fnum || u.ahead === fnum ? ' fav' : ''}">
+      <span class="uc-who">${drvU(u.num)}<span class="muted">on</span>${drvU(u.ahead)}</span>
+      <span class="uc-badge${u.clear ? ' strong' : ''}">${u.clear ? 'Undercut on' : 'Possible'}</span>
+      <span class="uc-text">${u.iv.toFixed(1)} s behind · tyres ${u.me.age} laps old against ${u.them.age} · pitting now rejoins P${u.pos} ${u.clear ? 'in clear air' : `in traffic, ${u.traffic.d.toFixed(1)} s behind ${esc(tlaOf(u.traffic.n))}`}</span>
+    </div>`).join('')}</div>
+    <p class="hint chart-note">A guide, not a prediction: the car behind is within ${UNDERCUT.gap} s, both are on tyres old enough to stop, and it would rejoin ${UNDERCUT.clearAir} s or more clear of the next car ("Undercut on") or into traffic ("Possible").</p>` : '';
+  if (!battles.length) return setBody(key, '', `<div class="empty">No cars within ${BATTLE_S.toFixed(0)} second of each other right now.</div>${underHtml}`);
   const trend = (r) => r == null ? '<span class="bt-trend">–</span>'
     : r < -0.05 ? `<span class="bt-trend closing">closing ${Math.abs(r).toFixed(2)} s/lap</span>`
     : r > 0.05 ? `<span class="bt-trend opening">dropping back ${r.toFixed(2)} s/lap</span>`
@@ -1961,7 +2168,7 @@ function renderBattles() {
       <span class="bt-side right">${tyre(b.them)}${drv(b.ahead)}</span>
       <span class="bt-laps muted">${b.together > 1 ? `${b.together} laps` : ''}</span>
     </div>`).join('')}</div>
-    <p class="hint chart-note">Chaser on the left, car ahead on the right, with tyre and tyre age. The trend is how the gap changed per lap over the last few laps; "laps" is how long they've been within a second.</p>`;
+    <p class="hint chart-note">Chaser on the left, car ahead on the right, with tyre and tyre age. The trend is how the gap changed per lap over the last few laps; "laps" is how long they've been within a second.</p>${underHtml}`;
   setBody(key, '', html);
 }
 
