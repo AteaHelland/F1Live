@@ -41,6 +41,7 @@ let teleTla = store.get('teleTla', '');
 let insTab = store.get('insTab', '');
 let radioMine = store.get('radioMine', false);
 let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
+let showPit = store.get('showPit', true);   // the "If pit" prediction: tower column, map ghost, favourite bar
 let mapHidden = new Set(store.get('mapHidden', [])); // driver codes hidden on the track map
 let showKO = store.get('showKO', false);
 let wakeMode = store.get('wake', 'live'); // off | live | always // qualifying: show drivers knocked out in earlier parts
@@ -861,7 +862,7 @@ function parseLap(v) {
 // Where each driver would rejoin if they pitted now: their gap to the leader plus the pit loss
 // (less under a safety car or VSC), placed among the cars on the lead lap.
 function pitWindow() {
-  if (!isRaceSession() || !hasSession()) return null;
+  if (!showPit || !isRaceSession() || !hasSession()) return null;
   const cars = runningOrder().map(([n, l]) => ({ n, l, g: gapSec(l) }))
     .filter((c) => c.g != null && !c.l.Retired && !c.l.Stopped)
     .sort((a, b) => a.g - b.g);
@@ -1052,6 +1053,7 @@ function renderTower() {
   const table = $('tower');
   table.dataset.kind = kind;
   table.dataset.gapmode = gapMode;
+  table.dataset.ghost = showPit ? 'on' : 'off';
   $('gapToggle').textContent = gapMode === 'int' ? 'Interval' : 'Gap';
   $('gapToggle').style.visibility = kind === 'race' ? 'visible' : 'hidden';
   const q = qInfo();
@@ -2308,6 +2310,7 @@ function openSettings() {
   renderUnits();
   renderWakeState();
   renderSpoilState();
+  renderPitShow();
   showPitLoss();
   renderSettings();
   $('settings').showModal();
@@ -2359,6 +2362,23 @@ $('sessions').addEventListener('click', (e) => {
 });
 $('nextInfo').addEventListener('click', (e) => { if (e.target.closest('[data-back-live]')) backToLive(); });
 $('settings').addEventListener('click', (e) => {
+  const ds = e.target.closest('[data-delay-step]');
+  if (ds) {
+    const v = Math.min(120, Math.max(0, Number($('delay').value) + Number(ds.dataset.delayStep)));
+    $('delay').value = v;
+    $('delayVal').textContent = `${v} s`;
+    clearTimeout(delayStepTimer);
+    delayStepTimer = setTimeout(() => setDelay(v), 500);
+    return;
+  }
+  const pb = e.target.closest('[data-pitshow]');
+  if (pb) {
+    showPit = pb.dataset.pitshow === '1';
+    store.set('showPit', showPit);
+    renderPitShow();
+    dirty = true;
+    return;
+  }
   const sb = e.target.closest('[data-spoil]');
   if (sb) {
     spoilerFree = sb.dataset.spoil === '1';
@@ -2481,11 +2501,22 @@ document.addEventListener('click', (e) => {
   if (e.target.closest('[data-open-settings]')) openSettings();
 });
 $('delay').addEventListener('input', (e) => { $('delayVal').textContent = `${e.target.value} s`; });
-$('delay').addEventListener('change', (e) => {
-  delay = Number(e.target.value);
+function setDelay(v) {
+  delay = Math.min(120, Math.max(0, Math.round(v)));
   store.set('delay', delay);
+  $('delay').value = delay;
+  $('delayVal').textContent = `${delay} s`;
   connect(); // rebuild state from the server's buffer at the new delay
-});
+}
+$('delay').addEventListener('change', (e) => setDelay(Number(e.target.value)));
+// − and +: one second a tap. The page reconnects once the tapping stops.
+let delayStepTimer = null;
+function renderPitShow() {
+  for (const b of document.querySelectorAll('[data-pitshow]')) b.classList.toggle('on', (b.dataset.pitshow === '1') === showPit);
+  $('pitShowState').textContent = showPit ? 'Shown' : 'Hidden';
+  $('pitLossField').classList.toggle('off', !showPit);
+  $('pitLoss').disabled = !showPit;
+}
 $('gapToggle').addEventListener('click', () => {
   gapMode = gapMode === 'int' ? 'gap' : 'int';
   store.set('gapMode', gapMode);

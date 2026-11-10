@@ -170,73 +170,98 @@
     </form>
   </dialog>
 
-  <dialog id="settings" class="settings">
+  <dialog id="settings" class="settings wide">
     <form method="dialog" class="settings-inner">
-      <div class="card-head"><h2>Settings</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
+      <div class="card-head set-head"><h2>Settings</h2><button class="icon-btn" value="close" aria-label="Close">✕</button></div>
 
-      <label class="field">
-        <span class="field-label">Broadcast delay <b id="delayVal">0 s</b></span>
-        <input type="range" id="delay" min="0" max="120" step="1" value="0">
-        <span class="hint">Holds the data back so it matches what you see on F1 TV. Watch for a sector or flag change on screen and nudge this until the page agrees. F1 TV is often 20–45 s behind.</span>
-      </label>
+      <section class="set-sec">
+        <h3 class="set-title">Watching</h3>
+        <div class="set-grid">
+          <div class="field">
+            <span class="field-label">Broadcast delay <b id="delayVal">0 s</b></span>
+            <div class="stepper">
+              <button type="button" class="btn step" data-delay-step="-1" aria-label="One second less">−</button>
+              <input type="range" id="delay" min="0" max="120" step="1" value="0" aria-label="Broadcast delay in seconds">
+              <button type="button" class="btn step" data-delay-step="1" aria-label="One second more">+</button>
+            </div>
+            <span class="hint">Holds the data back so the page matches your stream. Watch for a sector or flag change on screen, then nudge with − and + until the page agrees. F1 TV is often 20–45 s behind.</span>
+          </div>
 
-      <label class="field">
-        <span class="field-label">Favourite driver</span>
-        <select id="favSelect" class="sel wide"></select>
-        <span class="hint">Highlighted in the timing tower, on the map, in the charts and standings, with the gaps around them shown above the timing tower. Their telemetry is shown by default.</span>
-      </label>
+          <label class="field">
+            <span class="field-label">Favourite driver</span>
+            <select id="favSelect" class="sel wide"></select>
+            <span class="hint">Highlighted in the timing tower, on the map, in the charts and standings, with the gaps around them above the timing tower. Their telemetry is shown by default.</span>
+          </label>
 
-      <div class="field">
-        <span class="field-label">Units</span>
-        <div class="unit-row"><span class="unit-k">Temperature</span><span class="chips"><button type="button" class="chip-btn" data-unit="temp:C">°C</button><button type="button" class="chip-btn" data-unit="temp:F">°F</button></span></div>
-        <div class="unit-row"><span class="unit-k">Speed</span><span class="chips"><button type="button" class="chip-btn" data-unit="speed:kmh">km/h</button><button type="button" class="chip-btn" data-unit="speed:mph">mph</button></span></div>
-        <span class="hint">Speed also sets the wind: m/s with km/h, mph with mph. Saved in this browser.</span>
-      </div>
+          <div class="field">
+            <span class="field-label">Spoiler-free <b id="spoilState"></b></span>
+            <span class="chips"><button type="button" class="chip-btn" data-spoil="0">Off</button><button type="button" class="chip-btn" data-spoil="1">On</button></span>
+            <span class="hint">Hides results, standings and the final timing screen of a qualifying, sprint or race from the last week until you've watched it here, live or as a replay. Replay markers only appear once you've passed them.</span>
+          </div>
 
-      <div class="field">
-        <span class="field-label">Keep screen awake <b id="wakeState"></b></span>
-        <span class="chips"><button type="button" class="chip-btn" data-wake="off">Off</button><button type="button" class="chip-btn" data-wake="live">During sessions</button><button type="button" class="chip-btn" data-wake="always">Always</button></span>
-        <span class="hint">Stops phones and tablets from dimming and locking while this page is open. Saved per device.</span>
-      </div>
+          <div class="field">
+            <span class="field-label">Keep screen awake <b id="wakeState"></b></span>
+            <span class="chips"><button type="button" class="chip-btn" data-wake="off">Off</button><button type="button" class="chip-btn" data-wake="live">During sessions</button><button type="button" class="chip-btn" data-wake="always">Always</button></span>
+            <span class="hint">Stops phones and tablets from dimming and locking while this page is open.</span>
+          </div>
+        </div>
+      </section>
 
-      <div class="field">
-        <span class="field-label">Spoiler-free <b id="spoilState"></b></span>
-        <span class="chips"><button type="button" class="chip-btn" data-spoil="0">Off</button><button type="button" class="chip-btn" data-spoil="1">On</button></span>
-        <span class="hint">Hides results, standings and the final timing screen of a qualifying, sprint or race from the last week until you've watched it here, live or as a replay. Replay markers only appear once you've passed them. Saved per device.</span>
-      </div>
+      <section class="set-sec">
+        <h3 class="set-title">Display</h3>
+        <div class="set-grid">
+          <div class="field">
+            <span class="field-label">"If pit" prediction <b id="pitShowState"></b></span>
+            <span class="chips"><button type="button" class="chip-btn" data-pitshow="1">Show</button><button type="button" class="chip-btn" data-pitshow="0">Hide</button></span>
+            <span class="hint">Where each driver would rejoin if they pitted now: the "If pit" column in the timing tower, the ghost car on the track map and the line in your driver's bar. Races and sprints only.</span>
+            <label class="sub-field" id="pitLossField">
+              <span class="field-label">Pit loss <b id="pitLossVal"></b></span>
+              <input type="range" id="pitLoss" min="9.5" max="35" step="0.5" value="9.5">
+              <span class="hint">Time a pit stop costs under green flags. All the way left = automatic (a typical value for each circuit). It's cut to about 55% under a safety car and 65% under a VSC.</span>
+            </label>
+          </div>
 
-      <label class="field">
-        <span class="field-label">Pit loss <b id="pitLossVal"></b></span>
-        <input type="range" id="pitLoss" min="9.5" max="35" step="0.5" value="9.5">
-        <span class="hint">Time a pit stop costs under green flags, used for the "If pit" column and the ghost on the map. All the way left = automatic (a typical value for each circuit). It's cut to about 55% under a safety car and 65% under a VSC.</span>
-      </label>
+          <div class="field">
+            <span class="field-label">Units</span>
+            <div class="unit-row"><span class="unit-k">Temperature</span><span class="chips"><button type="button" class="chip-btn" data-unit="temp:C">°C</button><button type="button" class="chip-btn" data-unit="temp:F">°F</button></span></div>
+            <div class="unit-row"><span class="unit-k">Speed</span><span class="chips"><button type="button" class="chip-btn" data-unit="speed:kmh">km/h</button><button type="button" class="chip-btn" data-unit="speed:mph">mph</button></span></div>
+            <span class="hint">Speed also sets the wind: m/s with km/h, mph with mph.</span>
+          </div>
+        </div>
+        <p class="hint set-note">Everything above is saved on this device only.</p>
+      </section>
 
-      <div class="field">
-        <span class="field-label">Calendar feed</span>
-        <span class="hint">Subscribe to every session in your phone's or Mac's Calendar. Add it on each device ("On My iPhone" / "On My Mac"), not to iCloud: Apple's servers can't reach your home network.</span>
-        <div class="cal-links" id="calLinks"></div>
-      </div>
-
-      <div class="field">
-        <span class="field-label">F1 TV sign-in <b id="tokenState"></b></span>
+      <section class="set-sec">
+        <h3 class="set-title">Connections</h3>
+        <div class="set-grid">
+          <div class="field span-2">
+            <span class="field-label">F1 TV sign-in <b id="tokenState"></b></span>
         <div class="sec-warn" id="secretWarn" role="alert" hidden>
           <strong>Security warning:</strong> F1LIVE_SECRET is not configured. Token changes are not protected by authentication — anyone who can reach this page can replace or remove the token.
           <span>To fix it, put the same random value (e.g. from <code>openssl rand -hex 32</code>) as <code>F1LIVE_SECRET=</code> in both <code>.env</code> and <code>login/.env</code>, then run <code>sudo docker compose up -d</code> in both folders.</span>
         </div>
-        <span class="hint">Car positions on the track map and telemetry need your F1 TV subscription token. Sign in at formula1.com on a computer, open the browser's developer tools → Application/Storage → Cookies → formula1.com, and copy the value of the <code>login-session</code> cookie. Paste it here; the token is pulled out of it and stored only on your homelab box.</span>
-        <textarea id="tokenInput" rows="3" placeholder="Paste the login-session cookie value (or the subscriptionToken)"></textarea>
-        <div class="row">
-          <button type="button" id="tokenSave" class="btn primary">Save token</button>
-          <button type="button" id="tokenClear" class="btn">Remove</button>
-          <span id="tokenMsg" class="hint"></span>
-        </div>
-      </div>
+            <span class="hint">Car positions on the track map and telemetry need your F1 TV subscription token. Sign in at formula1.com on a computer, open the browser's developer tools → Application/Storage → Cookies → formula1.com, and copy the value of the <code>login-session</code> cookie. Paste it here; the token is pulled out of it and stored only on your homelab box.</span>
+            <textarea id="tokenInput" rows="3" placeholder="Paste the login-session cookie value (or the subscriptionToken)"></textarea>
+            <div class="row">
+              <button type="button" id="tokenSave" class="btn primary">Save token</button>
+              <button type="button" id="tokenClear" class="btn">Remove</button>
+              <span id="tokenMsg" class="hint"></span>
+            </div>
+          </div>
 
-      <div class="field">
-        <span class="field-label">Connection</span>
-        <span id="connInfo" class="hint mono"></span>
-      </div>
-      <p class="hint mono" style="padding: 0 16px 12px">Version __F1LIVE_BUILD__</p>
+          <div class="field">
+            <span class="field-label">Calendar feed</span>
+            <span class="hint">Subscribe to every session in your phone's or Mac's Calendar. Add it on each device ("On My iPhone" / "On My Mac"), not to iCloud: Apple's servers can't reach your home network.</span>
+            <div class="cal-links" id="calLinks"></div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Connection</span>
+            <span id="connInfo" class="hint mono"></span>
+            <span class="hint mono">Version __F1LIVE_BUILD__</span>
+          </div>
+        </div>
+      </section>
     </form>
   </dialog>
 

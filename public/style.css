@@ -202,6 +202,28 @@ td.c-gain { cursor: help; }
 .settings-inner { display: flex; flex-direction: column; }
 .field { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .field:last-child { border-bottom: 0; }
+/* the settings dialog itself: sections of cards, two columns on tablets and computers */
+.settings.wide { width: min(940px, calc(100vw - 24px)); }
+.set-head { position: sticky; top: 0; z-index: 1; background: var(--panel); }
+.set-sec { padding: 14px 16px 4px; }
+.set-sec:last-child { padding-bottom: 16px; }
+.set-title { margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); }
+.set-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.set-grid .field { border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); padding: 12px 14px; }
+.set-grid .field:last-child { border-bottom: 1px solid var(--line); }
+.set-grid .span-2 { grid-column: 1 / -1; }
+.set-grid .chip-btn, .set-grid .btn, .set-grid .sel { background: var(--panel); }
+.set-grid .chip-btn { padding: 5px 14px; font-size: 14px; }
+.set-grid .chip-btn.on { background: var(--text); border-color: var(--text); color: #111; }
+.set-note { margin: 8px 2px 0; }
+.sub-field { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; padding-top: 10px; border-top: 1px solid var(--line); }
+.sub-field.off { opacity: .4; }
+.stepper { display: flex; align-items: center; gap: 10px; }
+.stepper input[type=range] { flex: 1; min-width: 0; }
+.btn.step { width: 40px; height: 36px; padding: 0; font-size: 20px; line-height: 1; flex: none; }
+.settings.wide textarea { width: 100%; box-sizing: border-box; }
+.tower[data-ghost="off"] .c-ghost { display: none; }
+@media (max-width: 720px) { .set-grid { grid-template-columns: minmax(0, 1fr); } }
 .field-label { font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
 .field-label b { color: var(--muted); font-weight: 600; }
 .hint { color: var(--muted); font-size: 13px; line-height: 1.45; }

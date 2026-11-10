@@ -70,6 +70,7 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - Pit window: where each driver would rejoin if they pitted now ("If pit" column), with a
   ghost marker on the map for your favourite. The pit loss is a typical value per circuit,
   reduced under a safety car or VSC, and can be set by hand in ⚙ settings
+- The "If pit" prediction can be hidden in ⚙ settings (column, ghost car and favourite-bar line)
 - Pit stop log: every stop with lap, tyre change and time in the pit lane
 - Speed traps: each driver's best speed at the intermediate points, finish line and speed trap
 - Head-to-head: any two drivers side by side, with lap times and the gap between them lap by lap
@@ -79,7 +80,8 @@ Settings: ![Settings](docs/screenshots/10-settings.png)
 - Units: °C or °F, and km/h or mph (wind in m/s or mph), set in ⚙ settings per browser
 - Keep screen awake on phones and tablets: off, during sessions or always (⚙ settings). Needs
   the https:// address, since browsers only allow it on secure pages
-- A broadcast-delay slider so the page matches your stream (TV and streaming usually run
+- A broadcast-delay slider with − and + buttons (one second a tap) so the page matches your
+  stream (TV and streaming usually run
   20–45 seconds behind the live data)
 
 The dashboard only connects to F1's feed from 45 minutes before a session until about 90
