@@ -13,20 +13,23 @@ second screen next to the broadcast.
 
 These show the built-in demo (`DEMO=1`), which uses made-up teams and drivers.
 
-| | |
-|---|---|
 | ![Front page between sessions](docs/screenshots/01-front-page.png) | ![Replaying a saved session](docs/screenshots/08-replay.png) |
-| Front page between sessions: next session and saved sessions to replay | Replay: play/pause, timeline and speed |
-| ![Qualifying](docs/screenshots/07-qualifying.png) | ![Saved sessions](docs/screenshots/09-saved-sessions.png) |
-| Qualifying: knock-out line and purple/green sectors | Saved sessions by weekend (● = can be replayed) |
-| ![Strategy](docs/screenshots/03-strategy.png) | ![Race trace](docs/screenshots/04-race-trace.png) |
-| Tyre strategy | Race trace |
-| ![Battles](docs/screenshots/05-battles.png) | ![Stint pace](docs/screenshots/06-stint-pace.png) |
-| Battles: cars within a second, and whether the gap is closing | Stint pace per set of tyres |
+|---|---|
+| Front page between sessions: next session, saved sessions and a summary of each | Replay: opens at the start, with markers for the start, safety cars and the flag |
+| ![Qualifying](docs/screenshots/07-qualifying.png) | ![Settings](docs/screenshots/10-settings.png) |
+| Qualifying: knock-out line and purple/green sectors | Settings |
+| ![Title fight](docs/screenshots/15-title-fight.png) | ![Teammates](docs/screenshots/16-teammates.png) |
+| Title fight above the standings | Teammates over the season |
+| ![Lap chart](docs/screenshots/13-lap-chart.png) | ![Race trace](docs/screenshots/04-race-trace.png) |
+| Lap chart: positions lap by lap from the grid | Race trace |
+| ![Strategy](docs/screenshots/03-strategy.png) | ![Battles](docs/screenshots/05-battles.png) |
+| Tyre strategy | Battles and undercut watch |
+| ![Stint pace](docs/screenshots/06-stint-pace.png) | ![Saved sessions](docs/screenshots/09-saved-sessions.png) |
+| Stint pace per set of tyres | Saved sessions by weekend (● = can be replayed) |
 | ![Phone: front page](docs/screenshots/11-phone-front-page.png) | ![Phone: live race](docs/screenshots/12-phone-live.png) |
 | On a phone: front page | On a phone: live race |
 
-Settings: ![Settings](docs/screenshots/10-settings.png)
+The replay bar on its own: ![Replay markers](docs/screenshots/14-replay-markers.png)
 
 ## What it shows
 

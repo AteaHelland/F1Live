@@ -2,11 +2,11 @@
 // Usage: node test/fake-hub.js [port]
 import http from 'node:http';
 import crypto from 'node:crypto';
-import { RaceSimulator } from '../lib/demo.js';
+import { RaceSimulator, QualiSimulator } from '../lib/demo.js';
 
 const PORT = Number(process.argv[2] || 9100);
 const RS = '\x1e';
-const sim = new RaceSimulator();
+const sim = process.env.DEMO_SESSION === 'quali' ? new QualiSimulator() : new RaceSimulator(); // DEMO_SESSION=quali: qualifying
 const sockets = new Set();
 let validToken = 'good.token.sig';
 // FAKE_PATH=2026/test/ labels the session like a real one, so the dashboard saves and records it

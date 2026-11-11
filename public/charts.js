@@ -159,6 +159,14 @@ export function positionChart(series, { width, height, maxLap, rows, bands = [] 
     if (s.points.length === 1 || s.out) parts.push(`<circle class="rt-dot" cx="${x(last[0]).toFixed(1)}" cy="${y(last[1]).toFixed(1)}" r="3" style="fill:${esc(s.color)}"/>`);
     if (s.emphasis >= 0) ends.push({ x: x(last[0]), y: y(last[1]), s });
   }
+  // Labels down the right edge never overlap: spread them out like the race trace does.
+  const right = ends.filter((e) => !e.s.out).sort((a, b) => a.y - b.y);
+  const gap = Math.min(12, (H - pad.t - pad.b) / Math.max(1, right.length - 1));
+  for (let i = 1; i < right.length; i++) if (right[i].y < right[i - 1].y + gap) right[i].y = right[i - 1].y + gap;
+  for (let i = right.length - 1; i >= 0; i--) {
+    const lim = i === right.length - 1 ? H - pad.b : right[i + 1].y - gap;
+    if (right[i].y > lim) right[i].y = lim;
+  }
   for (const e of ends) {
     parts.push(`<text class="rt-end${e.s.emphasis > 0 ? ' em' : ''}${e.s.out ? ' out' : ''}" x="${(e.s.out ? e.x + 6 : W - pad.r + 6).toFixed(1)}" y="${e.y.toFixed(1)}">${e.s.out ? '' : `<tspan style="fill:${esc(e.s.color)}">▪</tspan> `}${esc(e.s.tla)}</text>`);
   }
