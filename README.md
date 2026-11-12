@@ -83,7 +83,7 @@ The replay bar on its own: ![Replay markers](docs/screenshots/14-replay-markers.
 - Pit window: where each driver would rejoin if they pitted now ("If pit" column), with a
   ghost marker on the map for your favourite. The pit loss is a typical value per circuit,
   reduced under a safety car or VSC, and can be set by hand in ⚙ settings
-- The "If pit" prediction can be hidden in ⚙ settings (column, ghost car and favourite-bar line)
+- The pit ghost on the track map can be hidden in ⚙ settings (the "If pit" column always shows)
 - Pit stop log: every stop with lap, tyre change and time in the pit lane
 - Speed traps: each driver's best speed at the intermediate points, finish line and speed trap
 - Head-to-head: any two drivers side by side, with lap times and the gap between them lap by lap

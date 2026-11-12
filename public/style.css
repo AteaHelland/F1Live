@@ -197,9 +197,14 @@ td.c-gain { cursor: help; }
 .flag.SC { background: var(--orange); }
 
 /* settings dialog */
-.settings { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 40px); }
+/* Always inside the visible screen: on phones and tablets 100vh is taller than what's visible
+   when the browser bars are showing, so the height follows the visible area (dvh) instead, and
+   only the content scrolls; the header with ✕ stays put at the top. */
+.settings { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(560px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px); max-height: calc(100dvh - 24px - env(safe-area-inset-top) - env(safe-area-inset-bottom)); overflow: hidden; }
+.settings[open] { display: flex; flex-direction: column; }
 .settings::backdrop { background: rgba(0, 0, 0, .6); }
-.settings-inner { display: flex; flex-direction: column; }
+.settings-inner { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .field { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
 .field:last-child { border-bottom: 0; }
 /* the settings dialog itself: sections of cards, two columns on tablets and computers */
@@ -222,7 +227,6 @@ td.c-gain { cursor: help; }
 .stepper input[type=range] { flex: 1; min-width: 0; }
 .btn.step { width: 40px; height: 36px; padding: 0; font-size: 20px; line-height: 1; flex: none; }
 .settings.wide textarea { width: 100%; box-sizing: border-box; }
-.tower[data-ghost="off"] .c-ghost { display: none; }
 @media (max-width: 720px) { .set-grid { grid-template-columns: minmax(0, 1fr); } }
 .field-label { font-weight: 700; display: flex; justify-content: space-between; gap: 8px; }
 .field-label b { color: var(--muted); font-weight: 600; }

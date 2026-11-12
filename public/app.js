@@ -42,7 +42,7 @@ let teleTla = store.get('teleTla', '');
 let insTab = store.get('insTab', '');
 let radioMine = store.get('radioMine', false);
 let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
-let showPit = store.get('showPit', true);   // the "If pit" prediction: tower column, map ghost, favourite bar
+let showPit = store.get('showPit', true);   // the "If pit" ghost car on the track map (the column and the driver bar always show)
 let mapHidden = new Set(store.get('mapHidden', [])); // driver codes hidden on the track map
 let showKO = store.get('showKO', false);
 let wakeMode = store.get('wake', 'live'); // off | live | always // qualifying: show drivers knocked out in earlier parts
@@ -930,8 +930,8 @@ function parseLap(v) {
 
 // Where each driver would rejoin if they pitted now: their gap to the leader plus the pit loss
 // (less under a safety car or VSC), placed among the cars on the lead lap.
-function pitWindow(always) {
-  if ((!showPit && !always) || !isRaceSession() || !hasSession()) return null;
+function pitWindow() {
+  if (!isRaceSession() || !hasSession()) return null;
   const cars = runningOrder().map(([n, l]) => ({ n, l, g: gapSec(l) }))
     .filter((c) => c.g != null && !c.l.Retired && !c.l.Stopped)
     .sort((a, b) => a.g - b.g);
@@ -1122,7 +1122,6 @@ function renderTower() {
   const table = $('tower');
   table.dataset.kind = kind;
   table.dataset.gapmode = gapMode;
-  table.dataset.ghost = showPit ? 'on' : 'off';
   $('gapToggle').textContent = gapMode === 'int' ? 'Interval' : 'Gap';
   $('gapToggle').style.visibility = kind === 'race' ? 'visible' : 'hidden';
   const q = qInfo();
@@ -1528,7 +1527,7 @@ let ghostKey = '';
 function renderGhost(entries) {
   if (!ghostLayer || !geom || !circuit?.x?.length) return;
   const target = (isLive() && favNum()) || (isLive() ? teleNum() : null);
-  const w = target && !mapHidden.has(tlaOf(target)) ? pitWindow()?.map[target] : null;
+  const w = showPit && target && !mapHidden.has(tlaOf(target)) ? pitWindow()?.map[target] : null;
   if (!w || !entries) { if (ghostKey) { ghostLayer.innerHTML = ''; ghostKey = ''; } return; }
   const N = circuit.x.length;
   const idxOf = (num) => (entries[num] ? nearestIndex({ x: entries[num].X, y: entries[num].Y }) : null);
@@ -2135,7 +2134,7 @@ function renderBattles() {
   const lc = state.LapCount || {};
   const lapsLeft = (Number(lc.TotalLaps) || 0) - (Number(lc.CurrentLap) || 0);
   const green = ['1', '2', undefined].includes(state.TrackStatus?.Status);
-  const pw = green && lapsLeft >= UNDERCUT.lapsLeft ? pitWindow(true) : null;
+  const pw = green && lapsLeft >= UNDERCUT.lapsLeft ? pitWindow() : null;
   const stintOf = (n) => { const st = list(app[n]?.Stints); const x = st[st.length - 1]; return x ? { c: String(x.Compound || '').toUpperCase(), age: Number(x.TotalLaps) || 0 } : null; };
   for (let i = 1; pw && i < order.length; i++) {
     const [num, l] = order[i], [ahead, la] = order[i - 1];
@@ -2721,8 +2720,6 @@ let delayStepTimer = null;
 function renderPitShow() {
   for (const b of document.querySelectorAll('[data-pitshow]')) b.classList.toggle('on', (b.dataset.pitshow === '1') === showPit);
   $('pitShowState').textContent = showPit ? 'Shown' : 'Hidden';
-  $('pitLossField').classList.toggle('off', !showPit);
-  $('pitLoss').disabled = !showPit;
 }
 $('gapToggle').addEventListener('click', () => {
   gapMode = gapMode === 'int' ? 'gap' : 'int';
