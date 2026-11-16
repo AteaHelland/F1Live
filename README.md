@@ -259,6 +259,24 @@ reload the page in your browser.
 - Health check: `http://<server-ip>:3080/healthz`, for Uptime Kuma, Homepage or similar
 - The auto sign-in container has its own status check, described in `login/README.md`
 
+## Probe: what else does F1 send?
+
+`tools/probe.js` connects to F1's live timing on its own connection (the dashboard isn't touched),
+asks for every topic name it knows one by one, listens for a few minutes, and reads F1's archive
+index for the session, which lists every feed F1 published. It writes `data/probe/<time>/report.md`
+(which topics answered, which need the F1 TV token, how big and how often, and what the data looks
+like) plus a sample of each topic.
+
+```
+sudo docker compose exec f1live node tools/probe.js              # listens for 2 minutes
+sudo docker compose exec f1live node tools/probe.js --minutes 10
+```
+
+Run it during a session; between sessions the hub has little to say, though the archive part
+works at any time. `--path "<SessionInfo.Path>"` picks the archived session, `--topics A,B` adds
+names to try, `--no-live` and `--no-archive` skip a half. The token is used if one is saved and is
+never written to the report.
+
 ## Data sources
 
 - Live timing: livetiming.formula1.com (unofficial)

@@ -90,7 +90,7 @@ server.on('upgrade', (req, socket) => {
             if (t.endsWith('.z') && !conn.authed) continue;
             if (snap[t] !== undefined) result[t] = snap[t];
           }
-          conn.subscribed = new Set(topics.filter((t) => !t.endsWith('.z') || conn.authed));
+          for (const t of topics) if (!t.endsWith('.z') || conn.authed) (conn.subscribed ||= new Set()).add(t); // subscriptions add up
           console.log(`subscribe (${conn.authed ? 'with' : 'without'} token):`, Object.keys(result).join(','));
           send({ type: 3, invocationId: m.invocationId, result });
         }

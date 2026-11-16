@@ -3,6 +3,7 @@ WORKDIR /app
 COPY package.json server.js ./
 COPY lib ./lib
 COPY public ./public
+COPY tools ./tools
 ENV NODE_ENV=production PORT=3000 DATA_DIR=/data
 VOLUME /data
 EXPOSE 3000
