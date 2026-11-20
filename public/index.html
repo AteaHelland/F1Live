@@ -62,8 +62,8 @@
 
   <div id="home" class="home" hidden></div>
 
-  <main class="grid">
-    <div class="col col-main">
+  <main class="grid" id="grid">
+    <div class="col">
       <section class="card tower-card" id="towerCard">
         <div class="card-head">
           <h2 id="towerTitle">Timing</h2>
@@ -97,25 +97,24 @@
         </div>
       </section>
       <section class="card ins-card" id="insCard">
-        <div class="card-head">
-          <div class="tabs" role="tablist" aria-label="Insights" id="insTabs">
-            <button type="button" role="tab" data-tab="strategy">Strategy</button>
-            <button type="button" role="tab" data-tab="trace">Race trace</button>
-            <button type="button" role="tab" data-tab="positions">Lap chart</button>
-          <button type="button" role="tab" data-tab="pits">Pit stops</button>
-          <button type="button" role="tab" data-tab="battles">Battles</button>
-          <button type="button" role="tab" data-tab="pace">Stint pace</button>
-          <button type="button" role="tab" data-tab="speeds">Speeds</button>
-          <button type="button" role="tab" data-tab="h2h">Head-to-head</button>
-            <button type="button" role="tab" data-tab="standings">Standings</button>
-            <button type="button" role="tab" data-tab="results">Results</button>
+        <div class="card-head ins-head">
+          <div class="tabs" role="tablist" aria-label="Insights" id="insTabs"></div>
+          <div class="ins-seg" role="tablist" aria-label="Insight groups" id="insSeg"></div>
+          <button type="button" class="ins-menu-btn" id="insMenuBtn" aria-haspopup="menu" aria-expanded="false"></button>
+          <h2 class="ins-title" id="insTitle"></h2>
+        </div>
+        <div class="ins-sub" id="insSub"></div>
+        <div class="ins-main">
+          <nav class="ins-rail" id="insRail" aria-label="Insights"></nav>
+          <div class="ins-pane">
+            <div id="insTools" class="ins-tools"></div>
+            <div id="insBody" class="ins-body"></div>
           </div>
         </div>
-        <div id="insTools" class="ins-tools"></div>
-        <div id="insBody" class="ins-body"></div>
+        <div class="ins-pop" id="insPop" role="menu" hidden></div>
       </section>
     </div>
-    <div class="col col-side">
+    <div class="col">
       <section class="card map-card" id="mapCard">
         <div class="card-head"><h2 id="mapTitle">Track</h2><button type="button" id="mapShowAll" class="seg-on" hidden></button></div>
         <div class="map-wrap">
@@ -155,6 +154,7 @@
 
   <div id="layoutBar" class="layout-bar" hidden>
     <span class="lb-text"><b>Arrange cards</b> <span class="muted" id="layoutHint"></span></span>
+    <span class="lb-cols" role="group" aria-label="Columns"><span class="muted">Columns</span><span class="chips" id="layoutCols"></span></span>
     <button type="button" id="layoutReset" class="btn">Reset</button>
     <button type="button" id="layoutDone" class="btn primary">Done</button>
   </div>
@@ -219,6 +219,12 @@
               <input type="range" id="pitLoss" min="9.5" max="35" step="0.5" value="9.5">
               <span class="hint">Time a pit stop costs under green flags, used for the ghost, the "If pit" column and the undercut watch. All the way left = automatic (a typical value for each circuit). It's cut to about 55% under a safety car and 65% under a VSC.</span>
             </label>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Insights layout <b id="insStyleState"></b></span>
+            <span class="chips"><button type="button" class="chip-btn" data-ins-style="tabs">Tabs</button><button type="button" class="chip-btn" data-ins-style="menu">Menu</button><button type="button" class="chip-btn" data-ins-style="rail">Sidebar</button><button type="button" class="chip-btn" data-ins-style="groups">Groups</button><button type="button" class="chip-btn" data-ins-style="cards">Cards</button></span>
+            <span class="hint"><b>Tabs:</b> one row of tabs. <b>Menu:</b> a drop-down under the card title. <b>Sidebar:</b> a list down the left of the card. <b>Groups:</b> Race, Drivers and Season, each with its own views. <b>Cards:</b> every view is its own card, to place, show or hide with the arrange button.</span>
           </div>
 
           <div class="field">

@@ -40,6 +40,11 @@ const teleBuf = new Map();   // num -> [{ t, rpm, v, gear, thr, brk }] for the l
 let fav = store.get('fav', ''); // favourite driver's three-letter code
 let teleTla = store.get('teleTla', '');
 let insTab = store.get('insTab', '');
+let insStyle = store.get('insStyle', 'tabs'); // tabs | menu | rail | groups | cards
+let insGroupLast = store.get('insGroupLast', {}); // last view picked in each group
+let insKey = '';             // what the insights body shows now; '' = redraw
+const insKeys = {};          // the same per card, when every view is its own card
+let insEl = null;            // { body, tools } the view being drawn goes into
 let radioMine = store.get('radioMine', false);
 let pitLossManual = store.get('pitLoss', 0); // 0 = automatic
 let showPit = store.get('showPit', true);   // the "If pit" ghost car on the track map (the column and the driver bar always show)
@@ -139,7 +144,7 @@ function mergeSeen(map) {
   for (const id of Object.keys(map || {})) if (!seen[id]) { seen[id] = 1; changed = true; }
   if (!changed) return;
   store.set('seen', seen);
-  insKey = ''; rpMarksKey = ''; homeHtml = '';
+  insReset(); rpMarksKey = ''; homeHtml = '';
   dirty = true;
 }
 function pushSeen(ids) {
@@ -176,7 +181,7 @@ function markSeen(id, self = true) {
   if (!added.length) return;
   store.set('seen', seen);
   pushSeen(added);
-  insKey = ''; rpMarksKey = '';
+  insReset(); rpMarksKey = '';
   dirty = true;
 }
 // The finished session on the live screen hasn't been watched: keep it behind the front page.
@@ -352,7 +357,7 @@ function resetView() {
   queue = [];
   teleBuf.clear();
   posMem.clear();
-  insKey = ''; teleOptsKey = ''; ghostKey = ''; rcKey = null; radioKey = ''; penKey = ''; flagKey = '';
+  insReset(); teleOptsKey = ''; ghostKey = ''; rcKey = null; radioKey = ''; penKey = ''; flagKey = '';
   penCache = { key: '', list: [] };
   dirty = true;
 }
@@ -1611,7 +1616,31 @@ audio.addEventListener('error', () => { playing = null; radioKey = ''; dirty = t
 
 // ---------- insights: strategy, race trace, standings, results ----------
 const isRaceSession = () => sessionType() === 'Race';
-let insKey = '';
+const INS_GROUPS = [['race', 'Race'], ['drivers', 'Drivers'], ['season', 'Season']];
+const INS = [
+  { id: 'strategy', label: 'Strategy', group: 'race', render: () => renderStrategy() },
+  { id: 'trace', label: 'Race trace', group: 'race', render: () => renderTrace() },
+  { id: 'positions', label: 'Lap chart', group: 'race', render: () => renderPositions() },
+  { id: 'pits', label: 'Pit stops', group: 'race', render: () => renderPits() },
+  { id: 'battles', label: 'Battles', group: 'drivers', render: () => renderBattles() },
+  { id: 'pace', label: 'Stint pace', group: 'drivers', render: () => renderPace() },
+  { id: 'speeds', label: 'Speeds', group: 'drivers', render: () => renderSpeeds() },
+  { id: 'h2h', label: 'Head-to-head', group: 'drivers', render: () => renderH2H() },
+  { id: 'standings', label: 'Standings', group: 'season', render: () => renderStandings() },
+  { id: 'results', label: 'Results', group: 'season', render: () => renderResults() },
+];
+const insView = (id) => INS.find((v) => v.id === id) || INS[INS.length - 1];
+const groupLabel = (g) => INS_GROUPS.find(([k]) => k === g)?.[1] || '';
+function insReset() { insKey = ''; for (const k of Object.keys(insKeys)) insKeys[k] = ''; }
+
+// "Cards" style: one card per view, arranged like the other cards.
+for (const v of INS) {
+  const el = document.createElement('section');
+  el.className = 'card ins-card insx-card';
+  el.id = `ins-${v.id}`;
+  el.innerHTML = `<div class="card-head"><h2>${esc(v.label)}</h2></div><div class="ins-tools" hidden></div><div class="ins-body"></div>`;
+  document.querySelector('#grid .col').append(el);
+}
 
 function currentInsTab() {
   if (insTab) return insTab;
@@ -1619,26 +1648,61 @@ function currentInsTab() {
 }
 
 function renderInsights() {
-  const tab = currentInsTab();
-  for (const b of document.querySelectorAll('#insTabs [data-tab]')) b.setAttribute('aria-selected', String(b.dataset.tab === tab));
-  if (tab === 'strategy') renderStrategy();
-  else if (tab === 'trace') renderTrace();
-  else if (tab === 'positions') renderPositions();
-  else if (tab === 'pits') renderPits();
-  else if (tab === 'battles') renderBattles();
-  else if (tab === 'pace') renderPace();
-  else if (tab === 'speeds') renderSpeeds();
-  else if (tab === 'h2h') renderH2H();
-  else if (tab === 'standings') renderStandings();
-  else renderResults();
+  document.body.dataset.ins = insStyle;
+  if (insStyle !== 'cards') {
+    const tab = currentInsTab();
+    renderInsNav(tab);
+    insEl = { body: $('insBody'), tools: $('insTools') };
+    insView(tab).render();
+    return;
+  }
+  // One card per view: each keeps its own key so only the cards whose data changed redraw.
+  for (const v of INS) {
+    const card = $(`ins-${v.id}`);
+    if (editing || card.classList.contains('user-hidden')) continue;
+    insEl = { body: card.querySelector('.ins-body'), tools: card.querySelector('.ins-tools') };
+    insKey = insKeys[v.id] || '';
+    try { v.render(); } finally { insKeys[v.id] = insKey; }
+  }
+  insKey = '';
 }
 
 function setBody(key, tools, html) {
   if (key === insKey) return;
   insKey = key;
-  $('insTools').innerHTML = tools;
-  $('insTools').hidden = !tools;
-  $('insBody').innerHTML = html;
+  insEl.tools.innerHTML = tools;
+  insEl.tools.hidden = !tools;
+  insEl.body.innerHTML = html;
+}
+
+// Navigation for the single insights card, drawn for the chosen style.
+let insNavKey = '';
+function renderInsNav(tab) {
+  const v = insView(tab);
+  const key = `${insStyle}|${tab}`;
+  if (key === insNavKey) return;
+  insNavKey = key;
+  const item = (x, cls = '') => `<button type="button" role="tab" class="${cls}" data-tab="${x.id}" aria-selected="${x.id === tab}">${esc(x.label)}</button>`;
+  $('insTabs').innerHTML = INS.map((x) => item(x)).join('');
+  $('insSeg').innerHTML = INS_GROUPS.map(([g, label]) =>
+    `<button type="button" role="tab" data-ins-group="${g}" aria-selected="${g === v.group}">${esc(label)}</button>`).join('');
+  $('insSub').innerHTML = INS.filter((x) => x.group === v.group).map((x) => item(x, 'chip-btn' + (x.id === tab ? ' on' : ''))).join('');
+  $('insMenuBtn').innerHTML = `<span class="imb-group">${esc(groupLabel(v.group))}</span><span class="imb-label">${esc(v.label)}</span><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m6 9 6 6 6-6"/></svg>`;
+  $('insTitle').textContent = v.label;
+  const grouped = (cls) => INS_GROUPS.map(([g, label]) => `<div class="${cls}-group"><div class="${cls}-head">${esc(label)}</div>${
+    INS.filter((x) => x.group === g).map((x) => `<button type="button" role="${cls === 'ip' ? 'menuitemradio' : 'tab'}" data-tab="${x.id}" aria-${cls === 'ip' ? 'checked' : 'selected'}="${x.id === tab}">${esc(x.label)}</button>`).join('')}</div>`).join('');
+  $('insRail').innerHTML = grouped('ir');
+  $('insPop').innerHTML = grouped('ip');
+}
+function setInsMenu(open) {
+  $('insPop').hidden = !open;
+  $('insMenuBtn').setAttribute('aria-expanded', String(open));
+}
+function pickInsTab(id) {
+  insTab = id; store.set('insTab', insTab);
+  const g = insView(id).group;
+  insGroupLast = { ...insGroupLast, [g]: id }; store.set('insGroupLast', insGroupLast);
+  setInsMenu(false); insReset(); hideTip(); dirty = true;
 }
 
 function renderStrategy() {
@@ -1687,7 +1751,7 @@ function renderTrace() {
   const pick = traceFilter ? order.slice(0, traceFilter) : order;
   const nums = new Set(pick.map(([n]) => n));
   if (fnum && order.some(([n]) => n === fnum)) nums.add(fnum);
-  const width = $('insBody').clientWidth - 8;
+  const width = insEl.body.clientWidth - 8;
   const height = width < 520 ? 230 : 300;
   const byNum = {};
   for (const e of laps) (byNum[e.n] ||= []).push([e.lap, e.gap]);
@@ -1726,7 +1790,7 @@ function renderPositions() {
   const dashed = dashedSet();
   const nums = new Set((traceFilter ? order.slice(0, traceFilter) : order).map(([n]) => n));
   if (fnum && order.some(([n]) => n === fnum)) nums.add(fnum);
-  const width = $('insBody').clientWidth - 8;
+  const width = insEl.body.clientWidth - 8;
   const height = width < 520 ? 300 : 380;
   const byNum = {};
   for (const e of laps) (byNum[e.n] ||= []).push([e.lap, e.pos]);
@@ -1880,7 +1944,7 @@ async function loadMates() {
   try { mates = await getJson(`api/teammates?year=${standings.season}`); matesErr = null; }
   catch (e) { matesErr = e.message; }
   matesAt = Date.now();
-  insKey = '';
+  insReset();
   dirty = true;
 }
 function renderMates(tools, colorFor) {
@@ -1921,7 +1985,7 @@ async function loadStandings(force) {
     if (!res.ok) throw new Error(j.error);
     standings = j; standingsErr = null;
   } catch (e) { standingsErr = e.message; }
-  insKey = '';
+  insReset();
   dirty = true;
 }
 
@@ -2003,7 +2067,7 @@ async function ensureSeason() {
     const last = [...season.races].reverse().find((r) => r.done);
     if (last) resSel = { year: season.season, round: last.round, kind: resSel?.kind || 'race' };
   }
-  insKey = '';
+  insReset();
   dirty = true;
 }
 
@@ -2017,7 +2081,7 @@ async function loadResults(sel) {
     if (!res.ok) throw new Error(j.error);
     resCache.set(k, j);
   } catch (e) { resCache.set(k, { error: e.message }); }
-  insKey = '';
+  insReset();
   dirty = true;
 }
 
@@ -2305,7 +2369,7 @@ function renderH2H() {
   const race = isRaceSession();
   const laps = shownHist().filter((e) => e.k === 'lap' && (e.n === a || e.n === b));
   const secLaps = shownHist().filter((e) => e.k === 'sec' && (e.n === a || e.n === b));
-  const width = $('insBody').clientWidth - 8;
+  const width = insEl.body.clientWidth - 8;
   const lines = state.TimingData?.Lines || {};
   const la = lines[a] || {}, lb = lines[b] || {};
   const key = `h2h|${a}|${b}|${laps.length}|${secLaps.length}|${width}|${JSON.stringify([la.Position, lb.Position, la.GapToLeader, lb.GapToLeader, la.LastLapTime?.Value, lb.LastLapTime?.Value, q?.part])}`;
@@ -2492,14 +2556,16 @@ function hideTip() {
   tip.hidden = true;
   hideCross();
 }
-$('insBody').addEventListener('pointermove', (ev) => {
-  const st = ev.target.closest('[data-tip]');
-  if (st) return showTip(ev, esc(st.dataset.tip));
-  if (ev.target.closest('svg[data-chart]')) return chartHover(ev);
-  hideTip();
-});
-$('insBody').addEventListener('pointerleave', hideTip);
-$('insBody').addEventListener('pointerdown', (ev) => { if (ev.pointerType !== 'mouse' && ev.target.closest('svg[data-chart]')) chartHover(ev); });
+for (const body of document.querySelectorAll('.ins-body')) {
+  body.addEventListener('pointermove', (ev) => {
+    const st = ev.target.closest('[data-tip]');
+    if (st) return showTip(ev, esc(st.dataset.tip));
+    if (ev.target.closest('svg[data-chart]')) return chartHover(ev);
+    hideTip();
+  });
+  body.addEventListener('pointerleave', hideTip);
+  body.addEventListener('pointerdown', (ev) => { if (ev.pointerType !== 'mouse' && ev.target.closest('svg[data-chart]')) chartHover(ev); });
+}
 
 // ---------- settings ----------
 function openSettings() {
@@ -2518,6 +2584,7 @@ function openSettings() {
   $('pitLoss').value = pitLossManual || 9.5;
   renderUnits();
   renderWakeState();
+  renderInsStyle();
   renderSpoilState();
   renderPitShow();
   showPitLoss();
@@ -2592,9 +2659,16 @@ $('settings').addEventListener('click', (e) => {
   if (sb) {
     spoilerFree = sb.dataset.spoil === '1';
     store.set('spoilerFree', spoilerFree);
-    insKey = ''; homeHtml = ''; rpMarksKey = '';
+    insReset(); homeHtml = ''; rpMarksKey = '';
     renderSpoilState();
     dirty = true;
+    return;
+  }
+  const ib = e.target.closest('[data-ins-style]');
+  if (ib) {
+    insStyle = ib.dataset.insStyle;
+    store.set('insStyle', insStyle);
+    insNavKey = ''; insReset(); renderInsStyle(); applyLayout();
     return;
   }
   const wb = e.target.closest('[data-wake]');
@@ -2610,7 +2684,7 @@ $('settings').addEventListener('click', (e) => {
   units = { ...units, [k]: v };
   store.set('units', units);
   renderUnits();
-  insKey = '';
+  insReset();
   dirty = true;
 });
 $('pitLoss').addEventListener('input', (e) => {
@@ -2625,7 +2699,7 @@ $('favSelect').addEventListener('change', (e) => {
   store.set('fav', fav);
   teleTla = '';
   store.set('teleTla', '');
-  insKey = ''; radioKey = ''; teleOptsKey = '';
+  insReset(); radioKey = ''; teleOptsKey = '';
   dirty = true;
 });
 $('calLinks').addEventListener('click', async (e) => {
@@ -2674,12 +2748,19 @@ $('radio').addEventListener('click', (e) => {
   radioKey = '';
   dirty = true;
 });
-document.querySelectorAll('#insTabs [data-tab]').forEach((b) => b.addEventListener('click', () => {
-  insTab = b.dataset.tab; store.set('insTab', insTab); insKey = ''; hideTip(); dirty = true;
-}));
 $('insCard').addEventListener('click', (e) => {
+  const tb = e.target.closest('[data-tab]');
+  if (tb) return pickInsTab(tb.dataset.tab);
+  const gb = e.target.closest('[data-ins-group]');
+  if (gb) return pickInsTab(insGroupLast[gb.dataset.insGroup] || INS.find((v) => v.group === gb.dataset.insGroup).id);
+  if (e.target.closest('#insMenuBtn')) return setInsMenu($('insPop').hidden);
+});
+document.addEventListener('click', (e) => { if (!e.target.closest('#insPop, #insMenuBtn')) setInsMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') setInsMenu(false); });
+$('grid').addEventListener('click', (e) => {
+  if (!e.target.closest('.ins-card')) return;
   const ps = e.target.closest('[data-pace-sort]');
-  if (ps) { store.set('paceSort', ps.dataset.paceSort); insKey = ''; dirty = true; return; }
+  if (ps) { store.set('paceSort', ps.dataset.paceSort); insReset(); dirty = true; return; }
   const t = e.target.closest('[data-trace-filter],[data-trace-focus],[data-stand],[data-res-kind],[data-speed-sort]');
   if (!t) return;
   if (t.dataset.speedSort) { speedSort = t.dataset.speedSort; store.set('speedSort', speedSort); }
@@ -2687,25 +2768,26 @@ $('insCard').addEventListener('click', (e) => {
   if (t.dataset.traceFocus != null) traceFocus = traceFocus === t.dataset.traceFocus ? null : t.dataset.traceFocus;
   if (t.dataset.stand) { standTab = t.dataset.stand; store.set('standTab', standTab); }
   if (t.dataset.resKind) { resSel = { ...resSel, kind: t.dataset.resKind }; store.set('resSel', resSel); }
-  insKey = '';
+  insReset();
   dirty = true;
 });
-$('insCard').addEventListener('change', (e) => {
+$('grid').addEventListener('change', (e) => {
+  if (!e.target.closest('.ins-card')) return;
   if (e.target.dataset.h2h) {
     h2h = { ...h2h, [e.target.dataset.h2h]: e.target.value };
     if (e.target.dataset.h2h === 'a' && h2h.b === h2h.a) h2h.b = '';
     store.set('h2h', h2h);
-    insKey = ''; dirty = true;
+    insReset(); dirty = true;
     return;
   }
   if (e.target.id !== 'resRound') return;
   resSel = { ...resSel, round: Number(e.target.value) };
   store.set('resSel', resSel);
-  insKey = '';
+  insReset();
   dirty = true;
 });
 let lastW = window.innerWidth;
-window.addEventListener('resize', () => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; insKey = ''; dirty = true; } });
+window.addEventListener('resize', () => { if (window.innerWidth !== lastW) { lastW = window.innerWidth; insReset(); dirty = true; } });
 document.addEventListener('click', (e) => {
   if (e.target.closest('[data-open-settings]')) openSettings();
 });
@@ -2793,6 +2875,12 @@ function renderSpoilState() {
   const n = unseen().length;
   $('spoilState').textContent = !spoilerFree ? 'Off' : `Hiding ${n} session${n === 1 ? '' : 's'}`;
 }
+const INS_STYLE_NAMES = { tabs: 'Tabs', menu: 'Menu', rail: 'Sidebar', groups: 'Groups', cards: 'Cards' };
+function renderInsStyle() {
+  document.body.dataset.ins = insStyle;
+  for (const b of document.querySelectorAll('[data-ins-style]')) b.classList.toggle('on', b.dataset.insStyle === insStyle);
+  $('insStyleState').textContent = INS_STYLE_NAMES[insStyle] || '';
+}
 function renderWakeState() {
   for (const b of document.querySelectorAll('[data-wake]')) b.classList.toggle('on', b.dataset.wake === wakeMode);
   const el = $('wakeState');
@@ -2807,52 +2895,84 @@ document.addEventListener('pointerdown', () => { if (!wakeLock) updateWake(); },
 setInterval(updateWake, 5000); // follows sessions starting and ending
 
 // ---------- your own layout ----------
-// Cards can be moved up and down, between the two columns (on wide screens) and hidden.
-// Wide and narrow screens keep separate layouts, saved in this browser.
+// Cards sit in 1–5 columns that stack independently. They can be moved up and down, to the
+// next column and hidden. Wide and narrow screens keep separate layouts, saved in this browser.
 const CARDS = {
   towerCard: 'Timing', insCard: 'Insights', mapCard: 'Track map', teleCard: 'Telemetry',
   rcCard: 'Race control', radioCard: 'Team radio', weekendCard: 'Next race weekend',
+  ...Object.fromEntries(INS.map((v) => [`ins-${v.id}`, v.label])),
 };
-const DEFAULT_WIDE = { main: ['towerCard', 'insCard'], side: ['mapCard', 'teleCard', 'rcCard', 'radioCard', 'weekendCard'], hidden: [] };
-const DEFAULT_NARROW = { main: ['towerCard', 'mapCard', 'teleCard', 'rcCard', 'radioCard', 'insCard', 'weekendCard'], side: [], hidden: [] };
+const MAX_COLS = 5;
+const INS_IDS = INS.map((v) => `ins-${v.id}`);
+// With the "Cards" insights style, these start out shown; the others are one tap away.
+const INS_HIDDEN = ['positions', 'pits', 'pace', 'speeds', 'h2h', 'results'].map((id) => `ins-${id}`);
+const DEFAULT_WIDE = { cols: [['towerCard', 'insCard', ...INS_IDS], ['mapCard', 'teleCard', 'rcCard', 'radioCard', 'weekendCard']], hidden: INS_HIDDEN };
+const DEFAULT_NARROW = { cols: [['towerCard', 'mapCard', 'teleCard', 'rcCard', 'radioCard', 'insCard', ...INS_IDS, 'weekendCard']], hidden: INS_HIDDEN };
 const narrowMQ = window.matchMedia('(max-width: 980px)');
 let editing = false;
+let cardHeights = {}; // measured before arranging, when the cards are collapsed to title bars
 const layoutKey = () => (narrowMQ.matches ? 'layoutNarrow' : 'layoutWide');
+// Only one of the insights card and the per-view cards is in use at a time.
+const cardInUse = (id) => (id === 'insCard' ? insStyle !== 'cards' : id.startsWith('ins-') ? insStyle === 'cards' : true);
 
 function getLayout() {
-  const narrow = narrowMQ.matches;
-  const def = narrow ? DEFAULT_NARROW : DEFAULT_WIDE;
+  const def = narrowMQ.matches ? DEFAULT_NARROW : DEFAULT_WIDE;
   const saved = store.get(layoutKey(), null);
   if (!saved) return clone(def);
   const ids = Object.keys(CARDS);
   const seen = new Set();
   const keep = (arr) => (arr || []).filter((id) => ids.includes(id) && !seen.has(id) && seen.add(id));
-  const L = { main: keep(saved.main), side: narrow ? [] : keep(saved.side), hidden: (saved.hidden || []).filter((id) => ids.includes(id)) };
-  if (narrow) L.main.push(...keep(saved.side));
-  // Cards added in a later version go where the default puts them.
-  for (const id of ids) {
-    if (seen.has(id)) continue;
-    const col = def.main.includes(id) ? 'main' : 'side';
-    L[col].push(id);
+  // Layouts saved before columns could be chosen have { main, side }.
+  const raw = Array.isArray(saved.cols) ? saved.cols : [saved.main, ...(narrowMQ.matches ? [] : [saved.side])];
+  let cols = raw.slice(0, MAX_COLS).map(keep);
+  if (!Array.isArray(saved.cols) && narrowMQ.matches) cols[0].push(...keep(saved.side));
+  if (!cols.length) cols = [[]];
+  const L = { cols, hidden: (saved.hidden || []).filter((id) => ids.includes(id)) };
+  // Cards added in a later version go where the default puts them: the per-view insights
+  // cards right after the insights card, the rest in the same column as by default.
+  const fresh = ids.filter((id) => !seen.has(id));
+  const freshIns = fresh.filter((id) => INS_IDS.includes(id));
+  if (freshIns.length) {
+    const c = L.cols.find((col) => col.includes('insCard')) || L.cols[0];
+    c.splice(c.includes('insCard') ? c.indexOf('insCard') + 1 : c.length, 0, ...freshIns);
+  }
+  for (const id of fresh) {
+    if (def.hidden.includes(id) && !L.hidden.includes(id)) L.hidden.push(id);
+    if (INS_IDS.includes(id)) continue;
+    const ci = def.cols.findIndex((col) => col.includes(id));
+    L.cols[Math.min(Math.max(ci, 0), L.cols.length - 1)].push(id);
   }
   return L;
 }
 
+function gridColumns(n) {
+  // The first column holds the timing tower by default, so it gets a bit more room.
+  if (n === 1) return 'minmax(0, 1fr)';
+  if (n === 2) return 'minmax(0, 1.45fr) minmax(320px, 1fr)';
+  return `minmax(0, 1.25fr) repeat(${n - 1}, minmax(0, 1fr))`;
+}
+
 function applyLayout() {
   const L = getLayout();
-  const cols = { main: document.querySelector('.col-main'), side: document.querySelector('.col-side') };
-  for (const col of ['main', 'side']) {
-    L[col].forEach((id, i) => {
-      const el = $(id);
-      if (el.parentElement !== cols[col]) cols[col].append(el);
-      el.style.order = String(i);
-      const hidden = L.hidden.includes(id);
-      el.classList.toggle('user-hidden', hidden && !editing);
-      el.classList.toggle('edit-hidden', hidden && editing);
-    });
-  }
+  const grid = $('grid');
+  const n = L.cols.length;
+  let colEls = [...grid.querySelectorAll(':scope > .col')];
+  while (colEls.length < n) { const c = document.createElement('div'); c.className = 'col'; grid.append(c); colEls.push(c); }
+  colEls.forEach((c, i) => { c.hidden = i >= n; });
+  grid.style.setProperty('--grid-cols', gridColumns(n));
+  grid.style.setProperty('--grid-max', n <= 2 ? '1600px' : `${Math.max(1600, n * 520)}px`);
+  grid.dataset.cols = String(n);
+  L.cols.forEach((ids, ci) => ids.forEach((id, i) => {
+    const el = $(id);
+    if (el.parentElement !== colEls[ci]) colEls[ci].append(el);
+    el.style.order = String(ci * 100 + i); // keeps column order when a phone flattens the grid
+    const hidden = L.hidden.includes(id);
+    el.classList.toggle('user-hidden', hidden && !editing);
+    el.classList.toggle('edit-hidden', hidden && editing);
+  }));
+  for (const b of document.querySelectorAll('[data-cols]')) b.classList.toggle('on', Number(b.dataset.cols) === n);
   if (editing) renderLayoutControls(L);
-  insKey = ''; // chart widths may have changed
+  insReset(); // chart widths may have changed
   dirty = true;
 }
 
@@ -2861,8 +2981,28 @@ function saveLayout(L) {
   applyLayout();
 }
 
+// A different number of columns: keep the reading order, and fill columns so they end up
+// about the same height (each card goes to the shortest column so far).
+function setColumns(n) {
+  const L = getLayout();
+  if (L.cols.length === n) return;
+  const order = L.cols.flat();
+  const cols = Array.from({ length: n }, () => []);
+  const h = new Array(n).fill(0);
+  let last = 0;
+  for (const id of order) {
+    // Hidden cards and cards not in use stay next to the card they followed.
+    const used = cardInUse(id) && !L.hidden.includes(id);
+    const ci = used ? h.indexOf(Math.min(...h)) : last;
+    cols[ci].push(id);
+    if (used) { h[ci] += (cardHeights[id] || 200) + 16; last = ci; }
+  }
+  L.cols = cols;
+  saveLayout(L);
+}
+
 function renderLayoutControls(L) {
-  const narrow = narrowMQ.matches;
+  const n = L.cols.length;
   for (const id of Object.keys(CARDS)) {
     const el = $(id);
     let ctl = el.querySelector(':scope > .lay-ctl');
@@ -2871,15 +3011,17 @@ function renderLayoutControls(L) {
       ctl.className = 'lay-ctl';
       el.prepend(ctl);
     }
-    const col = L.main.includes(id) ? 'main' : 'side';
-    const i = L[col].indexOf(id);
+    const ci = L.cols.findIndex((c) => c.includes(id));
+    const col = L.cols[ci].filter(cardInUse);
+    const i = col.indexOf(id);
     const hidden = L.hidden.includes(id);
     const b = (act, label, text, disabled) => `<button type="button" class="lay-btn" data-lay="${act}" data-card="${id}" aria-label="${esc(label)}" title="${esc(label)}"${disabled ? ' disabled' : ''}>${text}</button>`;
-    ctl.innerHTML = `<span class="lay-name">${esc(CARDS[id])}${hidden ? ' <span class="lay-tag">Hidden</span>' : ''}${id === 'teleCard' ? ' <span class="muted">· live only</span>' : ''}</span>
+    ctl.innerHTML = `<span class="lay-name">${INS_IDS.includes(id) ? '<span class="muted">Insights · </span>' : ''}${esc(CARDS[id])}${hidden ? ' <span class="lay-tag">Hidden</span>' : ''}${id === 'teleCard' ? ' <span class="muted">· live only</span>' : ''}</span>
       <span class="lay-btns">
         ${b('up', `Move ${CARDS[id]} up`, '↑', i === 0)}
-        ${b('down', `Move ${CARDS[id]} down`, '↓', i === L[col].length - 1)}
-        ${narrow ? '' : b('swap', `Move ${CARDS[id]} to the ${col === 'main' ? 'right' : 'left'} column`, col === 'main' ? '→' : '←')}
+        ${b('down', `Move ${CARDS[id]} down`, '↓', i === col.length - 1)}
+        ${n > 1 ? b('left', `Move ${CARDS[id]} one column left`, '←', ci === 0) : ''}
+        ${n > 1 ? b('right', `Move ${CARDS[id]} one column right`, '→', ci === n - 1) : ''}
         ${b('hide', hidden ? `Show ${CARDS[id]}` : `Hide ${CARDS[id]}`, hidden ? 'Show' : 'Hide')}
       </span>`;
   }
@@ -2887,19 +3029,35 @@ function renderLayoutControls(L) {
 
 function layoutAction(act, id) {
   const L = getLayout();
-  const col = L.main.includes(id) ? 'main' : 'side';
-  const arr = L[col];
+  const ci = L.cols.findIndex((c) => c.includes(id));
+  const arr = L.cols[ci];
   const i = arr.indexOf(id);
-  if (act === 'up' && i > 0) [arr[i - 1], arr[i]] = [arr[i], arr[i - 1]];
-  else if (act === 'down' && i < arr.length - 1) [arr[i + 1], arr[i]] = [arr[i], arr[i + 1]];
-  else if (act === 'swap') { arr.splice(i, 1); L[col === 'main' ? 'side' : 'main'].push(id); }
-  else if (act === 'hide') L.hidden = L.hidden.includes(id) ? L.hidden.filter((x) => x !== id) : [...L.hidden, id];
+  // Up and down skip cards that aren't in use with the current insights style.
+  const step = (dir) => { let j = i + dir; while (j >= 0 && j < arr.length && !cardInUse(arr[j])) j += dir; return j; };
+  if (act === 'up' || act === 'down') {
+    const j = step(act === 'up' ? -1 : 1);
+    if (j >= 0 && j < arr.length) { arr.splice(i, 1); arr.splice(j, 0, id); }
+  } else if (act === 'left' || act === 'right') {
+    const to = L.cols[ci + (act === 'left' ? -1 : 1)];
+    if (to) { const pos = arr.filter(cardInUse).indexOf(id); arr.splice(i, 1); insertAtVisible(to, id, pos); }
+  } else if (act === 'hide') L.hidden = L.hidden.includes(id) ? L.hidden.filter((x) => x !== id) : [...L.hidden, id];
   saveLayout(L);
   // Keep the moved card in view.
   $(id).scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
+// Put a card at the same height in another column, counting only the cards in use there.
+function insertAtVisible(arr, id, pos) {
+  let seenUsed = 0;
+  for (let k = 0; k < arr.length; k++) {
+    if (!cardInUse(arr[k])) continue;
+    if (seenUsed === pos) { arr.splice(k, 0, id); return; }
+    seenUsed++;
+  }
+  arr.push(id);
+}
 
 function setEditing(on) {
+  if (on) cardHeights = Object.fromEntries(Object.keys(CARDS).map((id) => [id, $(id).offsetHeight]));
   editing = on;
   document.body.classList.toggle('editing', on);
   $('layoutBar').hidden = !on;
@@ -2909,14 +3067,18 @@ function setEditing(on) {
   applyLayout();
 }
 
+$('layoutCols').innerHTML = Array.from({ length: MAX_COLS }, (_, i) =>
+  `<button type="button" class="chip-btn" data-cols="${i + 1}" aria-label="${i + 1} column${i ? 's' : ''}">${i + 1}</button>`).join('');
+$('layoutCols').addEventListener('click', (e) => { const b = e.target.closest('[data-cols]'); if (b) setColumns(Number(b.dataset.cols)); });
 $('layoutBtn').addEventListener('click', () => setEditing(!editing));
 $('layoutDone').addEventListener('click', () => setEditing(false));
 $('layoutReset').addEventListener('click', () => { store.set(layoutKey(), null); applyLayout(); });
-document.querySelector('main.grid').addEventListener('click', (e) => {
+$('grid').addEventListener('click', (e) => {
   const b = e.target.closest('[data-lay]');
   if (b) { e.stopPropagation(); layoutAction(b.dataset.lay, b.dataset.card); }
 }, true);
 narrowMQ.addEventListener('change', () => { if (editing) for (const c of document.querySelectorAll('.lay-ctl')) c.remove(); applyLayout(); });
+document.body.dataset.ins = insStyle;
 applyLayout();
 
 // ---------- loop ----------

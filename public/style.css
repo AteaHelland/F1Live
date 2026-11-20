@@ -80,14 +80,15 @@ code { background: var(--panel-2); padding: 1px 5px; border-radius: 4px; font-si
 .icon-btn { background: none; border: 1px solid var(--line); border-radius: 8px; width: 36px; height: 36px; display: grid; place-items: center; cursor: pointer; color: var(--muted); }
 .icon-btn:hover { color: var(--text); border-color: #3a424d; }
 
-/* layout: two columns that stack independently, so a tall card on one side
-   doesn't leave gaps on the other. Order changes between live and standby. */
+/* layout: 1–5 columns (picked while arranging) that stack independently, so a tall card
+   in one column doesn't leave gaps in the others. */
 .grid {
   display: grid; gap: 16px; padding: 16px max(16px, env(safe-area-inset-left));
-  grid-template-columns: minmax(0, 1.45fr) minmax(320px, 1fr);
-  max-width: 1600px; margin: 0 auto; align-items: start;
+  grid-template-columns: var(--grid-cols, minmax(0, 1.45fr) minmax(320px, 1fr));
+  max-width: var(--grid-max, 1600px); margin: 0 auto; align-items: start;
 }
 .col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.col[hidden] { display: none; }
 /* left: timing, then insights; right: map, telemetry, messages, next race weekend last */
 .tower-card { order: 1; }
 .ins-card { order: 2; }
@@ -545,11 +546,12 @@ body.editing { padding-bottom: 80px; }
   .tower .c-best, .drv .team { display: none; }
 }
 @media (max-width: 980px) {
-  /* one column: the two column wrappers dissolve and every card gets a place in one order */
+  .grid[data-cols="1"] .map { aspect-ratio: 16 / 10; }
+}
+@media (max-width: 640px) {
+  /* phones: always one column; the column wrappers dissolve and the cards keep their order */
   .grid { display: flex; flex-direction: column; align-items: stretch; }
   .col { display: contents; }
-  .tower-card { order: 1; } .map-card { order: 2; } .tele-card { order: 3; } .rc-card { order: 4; }
-  .radio-card { order: 5; } .ins-card { order: 6; } .weekend { order: 7; }
   .map { aspect-ratio: 16 / 10; }
 }
 @media (max-width: 640px) {
@@ -738,3 +740,67 @@ body.home-mode .top-mid { visibility: hidden; }
 .uc-badge { font-size: 11px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--line); color: var(--muted); }
 .uc-badge.strong { background: var(--orange); border-color: var(--orange); color: #111; }
 .uc-text { color: var(--muted); font-size: 13px; }
+
+/* ---------- insights: navigation styles (⚙ Display → Insights layout) ---------- */
+.ins-card { position: relative; }
+.ins-head > *, .ins-sub, .ins-rail { display: none; }
+body[data-ins="tabs"] #insTabs { display: flex; }
+body[data-ins="menu"] #insMenuBtn { display: inline-flex; }
+body[data-ins="rail"] #insTitle, body[data-ins="rail"] #insRail { display: block; }
+body[data-ins="groups"] #insSeg { display: inline-flex; }
+body[data-ins="groups"] .ins-sub { display: flex; }
+body[data-ins="cards"] #insCard, body:not([data-ins="cards"]) .insx-card { display: none !important; }
+.ins-pane { min-width: 0; }
+
+/* menu: the card title is a button that opens a grouped list */
+.ins-menu-btn { align-items: baseline; gap: 8px; background: none; border: 0; padding: 2px 6px 2px 0; color: var(--text); cursor: pointer; font: inherit; }
+.ins-menu-btn svg { align-self: center; color: var(--muted); transition: transform .15s; }
+.ins-menu-btn[aria-expanded="true"] svg { transform: rotate(180deg); }
+.ins-menu-btn:hover .imb-label { color: #fff; }
+.imb-group { font-size: 12px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+.imb-group::after { content: '/'; margin-left: 8px; opacity: .5; }
+.imb-label { font-size: 15px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
+.ins-card:has(.ins-pop:not([hidden])) { overflow: visible; z-index: 12; }
+.ins-pop { position: absolute; z-index: 12; top: 48px; left: 12px; min-width: 260px; max-height: min(70vh, 520px); overflow-y: auto; padding: 6px; background: #0f1216; border: 1px solid #3a424d; border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); }
+.ins-pop[hidden] { display: none; }
+.ip-group + .ip-group { border-top: 1px solid var(--line); margin-top: 4px; padding-top: 4px; }
+.ip-head, .ir-head { font-size: 11px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); padding: 6px 10px 4px; }
+.ip-group button, .ir-group button { display: block; width: 100%; text-align: left; background: none; border: 0; border-radius: 6px; padding: 7px 10px; font: inherit; font-size: 15px; font-weight: 600; color: var(--text); cursor: pointer; }
+.ip-group button:hover, .ir-group button:hover { background: var(--panel-2); }
+.ip-group button[aria-checked="true"] { background: var(--panel-2); box-shadow: inset 2px 0 0 var(--red); }
+
+/* sidebar: a grouped list down the left of the card */
+.ins-title { font-size: 15px; }
+.ins-title-g { font-size: 12px; margin-left: 6px; }
+body[data-ins="rail"] .ins-main { display: grid; grid-template-columns: 168px minmax(0, 1fr); }
+.ins-rail { border-right: 1px solid var(--line); padding: 8px 6px 12px; }
+.ir-group + .ir-group { margin-top: 8px; }
+.ir-group button { font-size: 14px; color: var(--muted); padding: 6px 10px; }
+.ir-group button[aria-selected="true"] { color: var(--text); background: var(--panel-2); box-shadow: inset 2px 0 0 var(--red); }
+
+/* groups: three big segments, then the views of the chosen group */
+.ins-seg { gap: 2px; padding: 3px; background: #0f1216; border: 1px solid var(--line); border-radius: 9px; }
+.ins-seg button { background: none; border: 0; border-radius: 6px; padding: 5px 14px; font: inherit; font-size: 13px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); cursor: pointer; }
+.ins-seg button[aria-selected="true"] { background: var(--panel-2); color: var(--text); box-shadow: inset 0 -2px 0 var(--red); }
+.ins-sub { gap: 18px; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; padding: 0 16px; border-bottom: 1px solid var(--line); }
+.ins-sub button, .ins-sub button.chip-btn { background: none; border: 0; border-radius: 0; padding: 10px 0 8px; font-size: 14px; font-weight: 600; color: var(--muted); white-space: nowrap; box-shadow: none; }
+.ins-sub button[aria-selected="true"] { color: var(--text); box-shadow: inset 0 -2px 0 var(--red); }
+
+/* cards: one per view (the card title replaces the tab) */
+.insx-card .ins-body { min-height: 80px; }
+
+/* column picker in the arrange bar */
+.lb-cols { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; }
+.lb-cols .chip-btn { min-width: 34px; padding: 3px 0; text-align: center; }
+
+@media (max-width: 640px) {
+  /* the sidebar becomes a scrolling row of the views above the chart */
+  body[data-ins="rail"] .ins-main { display: block; }
+  .ins-rail { display: none; border-right: 0; border-bottom: 1px solid var(--line); padding: 6px 8px; overflow-x: auto; scrollbar-width: none; }
+  body[data-ins="rail"] .ins-rail { display: flex; gap: 4px; }
+  .ins-rail .ir-group { display: flex; gap: 2px; margin: 0; }
+  .ins-rail .ir-head { display: none; }
+  .ins-rail .ir-group button { white-space: nowrap; width: auto; }
+  .ins-seg button { padding: 5px 10px; letter-spacing: .4px; }
+  .lb-cols { display: none; } /* phones always show one column */
+}
