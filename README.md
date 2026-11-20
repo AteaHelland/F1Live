@@ -122,7 +122,9 @@ folder. Sessions marked ● in the picker can be rewatched: play/pause, a timeli
 1×, 2×, 5× or 10× speed. The whole page plays along (tower, map, telemetry, race control, radio,
 charts). A replay opens paused at the start, 3 minutes before the scheduled start
 (`RECORD_LEAD`), so the result isn't shown until you get there; recording also only begins then,
-even though the live page connects 45 minutes ahead. A session still running can be replayed
+even though the live page connects 45 minutes ahead. Recording stops 2 minutes after the
+results are final, or 10 minutes after the chequered flag at the latest, even though the live
+page stays connected for 90 minutes; older recordings are cut at the same point when replayed. A session still running can be replayed
 from its start too. Ticks above the timeline mark the start, safety cars, virtual safety cars,
 red flags, the chequered flag and, in races, your favourite driver's pit stops; tap one, or use
 ⏮ ⏭, to jump to 5 seconds before it.
