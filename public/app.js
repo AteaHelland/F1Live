@@ -158,10 +158,12 @@ const OVER = ['Finished', 'Finalised', 'Ends'];
 let liveWatch = { key: null, at: 0 }; // the session seen running on this page, and when last
 const watchingLive = (key) => liveWatch.key === key && Date.now() - liveWatch.at < 5 * 60000;
 
+// Practice never spoils anything: only qualifying, sprints and races are held back.
+const isPractice = (s) => /^P\d/.test(s?.code || '');
 function unseen() {
   if (!spoilerFree || status?.demo || !sessionList) return [];
   const now = Date.now();
-  return sessionList.filter((s) => s.recorded && !/^P\d/.test(s.code || '') && s.start && !seen[s.id]
+  return sessionList.filter((s) => s.recorded && !isPractice(s) && s.start && !seen[s.id]
     && Date.parse(s.start) < now && now - Date.parse(s.start) < SPOIL_MS && !watchingLive(s.key));
 }
 // Mark a session watched (unless `self` is false), and every session that started before it.
@@ -209,12 +211,13 @@ const sesLabel = (s) => `${s.name} (${s.circuit})`;
 
 // ---------- session summaries (front page) ----------
 // A line per saved session: who was on top, fastest lap, biggest gainer, safety cars.
-// Always behind a tap for the first 24 hours; after that only while spoiler-free hides it.
+// Qualifying, sprints and races: always behind a tap for the first 24 hours, after that only while
+// spoiler-free hides them. Practice is shown at once.
 const SUMMARY_HOLD_MS = 24 * 3600000;
 let revealed = store.get('revealed', {}); // session id → 1: summaries shown on request
 const sumCache = new Map(); // id → summary | { loading } | { error }
 function summaryHidden(s) {
-  if (revealed[s.id]) return null;
+  if (revealed[s.id] || isPractice(s)) return null;
   if (s.start && Date.now() - Date.parse(s.start) < SUMMARY_HOLD_MS) return 'Hidden for the first 24 hours';
   if (unseen().some((u) => u.id === s.id)) return 'Hidden until you\'ve watched it';
   return null;
@@ -484,13 +487,15 @@ const clockText = (ms) => {
 };
 let rpDragging = false;
 // Events on the timeline: session start, safety cars, red flags, the chequered flag and, in
-// races, your driver's pit stops. Spoiler-free: only the first start and what has been passed.
+// races, your driver's pit stops. Spoiler-free (not in practice): only the first start and what
+// has been passed.
 const MARK_LEAD = 5000; // a jump lands this long before the event
 let rpMarksKey = '';
 function replayMarks(rp) {
   const fn = favNum(), race = sessionType() === 'Race';
   const first = (rp.marks || []).find((m) => m.k === 'start');
-  const hide = spoilerFree && !seen[rp.id];
+  const hide = spoilerFree && !seen[rp.id] && sessionType() !== 'Practice'
+    && !isPractice(sessionList?.find((s) => s.id === rp.id));
   let starts = 0;
   return (rp.marks || []).filter((m) => m.k !== 'pit' || (race && m.n === fn)).map((m) => ({
     ...m,
