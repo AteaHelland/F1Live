@@ -131,7 +131,7 @@ const homeMode = () => !viewing && !document.body.classList.contains('editing') 
 // until this browser saw it finish live or played its replay to the end (or you tap "Show
 // anyway"). While one is not watched, results and standings are covered, replay markers only
 // appear once passed, and the final timing screen of that session stays behind the front page.
-let spoilerFree = store.get('spoilerFree', false);
+let spoilerFree = store.get('spoilerFree', true); // on unless switched off on this device
 let seen = store.get('seen', {}); // session id → 1
 // The watched list is kept on the server too, so a session watched on one device counts on all.
 function mergeSeen(map) {
@@ -211,14 +211,12 @@ const sesLabel = (s) => `${s.name} (${s.circuit})`;
 
 // ---------- session summaries (front page) ----------
 // A line per saved session: who was on top, fastest lap, biggest gainer, safety cars.
-// Qualifying, sprints and races: always behind a tap for the first 24 hours, after that only while
-// spoiler-free hides them. Practice is shown at once.
-const SUMMARY_HOLD_MS = 24 * 3600000;
+// Behind a tap only while spoiler-free hides that session (never practice); with spoiler-free off,
+// everything shows.
 let revealed = store.get('revealed', {}); // session id → 1: summaries shown on request
 const sumCache = new Map(); // id → summary | { loading } | { error }
 function summaryHidden(s) {
-  if (revealed[s.id] || isPractice(s)) return null;
-  if (s.start && Date.now() - Date.parse(s.start) < SUMMARY_HOLD_MS) return 'Hidden for the first 24 hours';
+  if (revealed[s.id]) return null;
   if (unseen().some((u) => u.id === s.id)) return 'Hidden until you\'ve watched it';
   return null;
 }

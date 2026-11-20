@@ -42,8 +42,8 @@ The replay bar on its own: ![Replay markers](docs/screenshots/14-replay-markers.
 - Teammates: a season head-to-head for every pair of teammates (qualifying, races both finished,
   and the typical qualifying gap), under Standings
 - A summary of each saved session on the front page: top three, fastest lap, biggest gainer,
-  safety cars and retirements. It stays behind a "Show" button for the first 24 hours, and after
-  that only while spoiler-free is hiding that session
+  safety cars and retirements. It stays behind a "Show" button while spoiler-free is hiding that
+  session
 - Results of every race, sprint and qualifying this season
 - A calendar feed (`/calendar.ics`) to subscribe to from your phone or computer
 
@@ -129,11 +129,12 @@ from its start too. Ticks above the timeline mark the start, safety cars, virtua
 red flags, the chequered flag and, in races, your favourite driver's pit stops; tap one, or use
 ⏮ ⏭, to jump to 5 seconds before it.
 
-**Spoiler-free** (⚙ settings, per device). A qualifying, sprint or race from the last 7 days
+**Spoiler-free** (⚙ settings, per device, on by default). A qualifying, sprint or race from the last 7 days
 counts as not watched until this browser saw it finish live or played its replay past the
-chequered flag. Until then the Results and Standings tabs are covered, the final timing screen of
-that session stays behind the front page, and replay markers only appear once you've passed
-them. "Show anyway" lifts it. The list of watched sessions is kept on the server
+chequered flag. Until then the Results and Standings tabs are covered, its summary on the front
+page and the final timing screen of that session stay hidden, and replay markers only appear once
+you've passed them. Practice is never hidden. "Show anyway" lifts it. With spoiler-free off,
+everything is shown. The list of watched sessions is kept on the server
 (`data/seen.json`) and shared by every device, so a race watched on the TV counts on your phone;
 the setting itself stays per device. Recordings are kept for
 the last `RECORD_WEEKENDS` weekends (default 3, `0` keeps all); older sessions keep their folder
