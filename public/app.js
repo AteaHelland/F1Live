@@ -2791,7 +2791,7 @@ async function updateWake() {
 function renderSpoilState() {
   for (const b of document.querySelectorAll('[data-spoil]')) b.classList.toggle('on', (b.dataset.spoil === '1') === spoilerFree);
   const n = unseen().length;
-  $('spoilState').textContent = !spoilerFree ? 'Off' : n ? `On · hiding ${n} session${n === 1 ? '' : 's'}` : 'On · nothing to hide';
+  $('spoilState').textContent = !spoilerFree ? 'Off' : `Hiding ${n} session${n === 1 ? '' : 's'}`;
 }
 function renderWakeState() {
   for (const b of document.querySelectorAll('[data-wake]')) b.classList.toggle('on', b.dataset.wake === wakeMode);
